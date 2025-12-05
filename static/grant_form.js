@@ -413,6 +413,42 @@ document.addEventListener('DOMContentLoaded', function () {
         });
       });
 
+      // Add equipment to materials array with type='equipment'
+      document.querySelectorAll('#equipment-list .material-item').forEach(item => {
+        const category = item.querySelector('select[name="equipment_category[]"]')?.value || '';
+        const cost     = item.querySelector('input[name="equipment_cost[]"]')?.value || '';
+        const desc     = item.querySelector('textarea[name="equipment_desc[]"]')?.value || '';
+        const year     = item.querySelector('select[name="equipment_year[]"]')?.value || '';
+
+        if (!category && !cost && !desc && !year) return;
+
+        materials.push({
+          type: 'equipment',
+          category,
+          cost: cost ? parseFloat(cost) : null,
+          description: desc,
+          year
+        });
+      });
+
+      // Add other costs to materials array with type='other'
+      document.querySelectorAll('#other-costs-list .material-item').forEach(item => {
+        const category = item.querySelector('select[name="other_cost_category[]"]')?.value || '';
+        const cost     = item.querySelector('input[name="other_cost_amount[]"]')?.value || '';
+        const desc     = item.querySelector('textarea[name="other_cost_desc[]"]')?.value || '';
+        const year     = item.querySelector('select[name="other_cost_year[]"]')?.value || '';
+
+        if (!category && !cost && !desc && !year) return;
+
+        materials.push({
+          type: 'other',
+          category,
+          cost: cost ? parseFloat(cost) : null,
+          description: desc,
+          year
+        });
+      });
+
       const matField = document.getElementById('materials_json');
       if (matField) matField.value = JSON.stringify(materials);
       // Let the form submit normally
@@ -604,15 +640,28 @@ document.addEventListener('DOMContentLoaded', function () {
       });
     }
 
-    // ---------- 4) MATERIALS ----------
-    if (Array.isArray(window.INIT_MATERIALS) &&
-        window.INIT_MATERIALS.length &&
-        materialsList &&
-        materialTemplate) {
+    // ---------- 4) MATERIALS, EQUIPMENT, OTHER COSTS ----------
+    // Separate materials by type
+    const materialsOnly = [];
+    const equipmentOnly = [];
+    const otherCostsOnly = [];
 
+    if (Array.isArray(window.INIT_MATERIALS)) {
+      window.INIT_MATERIALS.forEach(m => {
+        if (m.type === 'equipment') {
+          equipmentOnly.push(m);
+        } else if (m.type === 'other') {
+          otherCostsOnly.push(m);
+        } else {
+          materialsOnly.push(m);
+        }
+      });
+    }
+
+    // Materials
+    if (materialsOnly.length && materialsList && materialTemplate) {
       materialsList.innerHTML = '';
-
-      window.INIT_MATERIALS.forEach((m) => {
+      materialsOnly.forEach((m) => {
         const block = materialTemplate.cloneNode(true);
         clearMaterialBlock(block);
 
@@ -635,18 +684,65 @@ document.addEventListener('DOMContentLoaded', function () {
           yearSelect.value = yearVal;
         }
       });
-
       renderHoursPerYear();
+    }
 
-      const items = materialsList.querySelectorAll('.material-item');
-      items.forEach((block, idx) => {
-        const m = window.INIT_MATERIALS[idx];
-        if (!m) return;
-        const yearSelect = block.querySelector('select[name="material_year[]"]');
-        if (yearSelect && m.year != null) {
-          yearSelect.value = String(m.year);
+    // Equipment
+    if (equipmentOnly.length && equipmentList && equipmentTemplate) {
+      equipmentList.innerHTML = '';
+      equipmentOnly.forEach((e) => {
+        const block = equipmentTemplate.cloneNode(true);
+        clearMaterialBlock(block);
+
+        const catSelect = block.querySelector('select[name="equipment_category[]"]');
+        const costInput = block.querySelector('input[name="equipment_cost[]"]');
+        const descArea  = block.querySelector('textarea[name="equipment_desc[]"]');
+        const yearSelect= block.querySelector('select[name="equipment_year[]"]');
+
+        const catVal  = e.category || '';
+        const costVal = e.cost != null ? e.cost : '';
+        const yearVal = e.year != null ? String(e.year) : '';
+
+        if (catSelect) catSelect.value = catVal;
+        if (costInput && costVal !== '') costInput.value = costVal;
+        if (descArea)  descArea.value  = e.description || '';
+
+        equipmentList.appendChild(block);
+
+        if (yearSelect && yearVal) {
+          yearSelect.value = yearVal;
         }
       });
+      renderHoursPerYear();
+    }
+
+    // Other Costs
+    if (otherCostsOnly.length && otherCostsList && otherCostTemplate) {
+      otherCostsList.innerHTML = '';
+      otherCostsOnly.forEach((o) => {
+        const block = otherCostTemplate.cloneNode(true);
+        clearMaterialBlock(block);
+
+        const catSelect = block.querySelector('select[name="other_cost_category[]"]');
+        const costInput = block.querySelector('input[name="other_cost_amount[]"]');
+        const descArea  = block.querySelector('textarea[name="other_cost_desc[]"]');
+        const yearSelect= block.querySelector('select[name="other_cost_year[]"]');
+
+        const catVal  = o.category || '';
+        const costVal = o.cost != null ? o.cost : '';
+        const yearVal = o.year != null ? String(o.year) : '';
+
+        if (catSelect) catSelect.value = catVal;
+        if (costInput && costVal !== '') costInput.value = costVal;
+        if (descArea)  descArea.value  = o.description || '';
+
+        otherCostsList.appendChild(block);
+
+        if (yearSelect && yearVal) {
+          yearSelect.value = yearVal;
+        }
+      });
+      renderHoursPerYear();
     }
   }
 
