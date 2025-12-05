@@ -401,8 +401,14 @@ def dashboard():
     - If Admin: show all awards + budget info (Admin dashboard).
     """
     u = session.get("user")
-    if not u:
-        return render_template("dashboard.html", name="User", role="Guest", awards=[])
+
+    # If no session or it doesn't have the right keys,
+    # just treat as guest instead of crashing.
+    if not isinstance(u, dict) or "role" not in u or "email" not in u:
+        return render_template("dashboard.html",
+                               name="User",
+                               role="Guest",
+                               awards=[])
 
     # ---------- Admin dashboard ----------
     if u["role"] == "Admin":
