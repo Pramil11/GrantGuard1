@@ -17,38 +17,48 @@ from reportlab.lib.styles import getSampleStyleSheet
 from openai import OpenAI
 
 app = Flask(__name__, template_folder='Templates')
-app.secret_key = "change-this-to-any-random-secret"  # needed for session
+app.secret_key = "change-this-to-any-random-secret"
 
-# ---- Admin global budget (1 million) ----
 ADMIN_INITIAL_BUDGET = 1_000_000
 
-# ---- DB config (use environment variables in deployment) ----
-DATABASE_URL = os.getenv("DATABASE_URL")  # Render provides this
+# 1) DB + OpenAI config
+# On Render you will set DATABASE_URL to the *internal* Render Postgres URL.
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-if DATABASE_URL:
-    # Parse DATABASE_URL: postgresql://user:pass@host:port/dbname
-    import urllib.parse as urlparse
-    urlparse.uses_netloc.append("postgresql")
-    url = urlparse.urlparse(DATABASE_URL)
-    DB_HOST = url.hostname
-    DB_USER = url.username
-    DB_PASS = url.password
-    DB_NAME = url.path[1:]  # Remove leading /
-    DB_PORT = url.port or 5432
-else:
-    # Local / fallback creds
+# Local fallback (only used when DATABASE_URL is NOT set, e.g. on your laptop)
+if not DATABASE_URL:
     DB_HOST = os.getenv("PGHOST", "localhost")
     DB_USER = os.getenv("PGUSER", "postgres")
     DB_PASS = os.getenv("PGPASSWORD", "")
-    DB_NAME = os.getenv("PGDATABASE", "grandguard")
+    DB_NAME = os.getenv("PGDATABASE", "grandguard_db")
     DB_PORT = int(os.getenv("PGPORT", "5432"))
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+# OpenAI config (used by AI checks)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if OPENAI_API_KEY:
     client = OpenAI(api_key=OPENAI_API_KEY)
 else:
     client = None
     print("WARNING: OPENAI_API_KEY is not set. AI checks will be skipped.")
+
+# 2) get_db() ✅ uses DATABASE_URL when present
+def get_db():
+    try:
+        if DATABASE_URL:
+            conn = psycopg2.connect(DATABASE_URL)
+        else:
+            conn = psycopg2.connect(
+                host=DB_HOST,
+                user=DB_USER,
+                password=DB_PASS,
+                database=DB_NAME,
+                port=DB_PORT,
+            )
+        return conn
+    except Exception as e:
+        print(f"DB connect error: {e}")
+        return None
+
 def run_award_ai_check(award_row: dict) -> dict:
     """
     Call OpenAI to check whether this award complies with
@@ -166,26 +176,6 @@ Respond strictly in valid JSON:
             "decision": "decline",
             "reason": f"AI check failed with error: {e}"
         }
-
-def get_db():
-    """Create a connection per request. No app-start crash if creds are wrong."""
-    try:
-        if DATABASE_URL:
-            conn = psycopg2.connect(DATABASE_URL)
-        else:
-            conn = psycopg2.connect(
-                host=DB_HOST,
-                user=DB_USER,
-                password=DB_PASS,
-                database=DB_NAME,
-                port=DB_PORT,
-            )
-        return conn
-    except Exception as e:
-        print(f"DB connect error: {e}")
-        return None
-
-
 def init_db_if_needed():
     """Initialize database schema if tables don't exist."""
     conn = get_db()
