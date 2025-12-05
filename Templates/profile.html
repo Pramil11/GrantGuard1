@@ -27,39 +27,56 @@
       </nav>
     </aside>
     <main class="content profile-page">
+      <header class="profile-hero">
+        <h1>My Profile</h1>
+        <p class="profile-subtitle">View your account information and grant history</p>
+      </header>
+
       <section class="profile-header card">
-        <div class="avatar">{{ user.name[0] if user.name else user.email[0] }}</div>
-        <div>
-          <h2>{{ user.name }}</h2>
-          <p>{{ user.email }} · {{ user.role }}</p>
+        <div class="profile-info">
+          <div class="avatar">{{ user.name[0] if user.name else user.email[0] }}</div>
+          <div class="profile-details">
+            <h2>{{ user.name }}</h2>
+            <p class="profile-email">{{ user.email }}</p>
+            <span class="profile-role">{{ user.role }}</span>
+          </div>
         </div>
       </section>
 
       <section class="profile-stats">
         <div class="card stat-card">
-          <span>Total Awards</span>
-          <strong>{{ stats.total_awards }}</strong>
+          <div class="stat-content">
+            <span class="stat-label">Total Awards</span>
+            <strong class="stat-value">{{ stats.total_awards }}</strong>
+          </div>
         </div>
         <div class="card stat-card">
-          <span>Active Awards</span>
-          <strong>{{ stats.active_awards }}</strong>
+          <div class="stat-content">
+            <span class="stat-label">Active Awards</span>
+            <strong class="stat-value">{{ stats.active_awards }}</strong>
+          </div>
         </div>
         <div class="card stat-card">
-          <span>Latest Submission</span>
-          {% if stats.latest_award %}
-            <strong>{{ stats.latest_award.title }}</strong>
-            <small>{{ stats.latest_award.created_at.strftime("%b %d, %Y") }}</small>
-          {% else %}
-            <strong>—</strong>
-            <small>No submissions yet</small>
-          {% endif %}
+          <div class="stat-content">
+            <span class="stat-label">Latest Submission</span>
+            {% if stats.latest_award %}
+              <strong class="stat-value-small">{{ stats.latest_award.title[:30] }}{% if stats.latest_award.title|length > 30 %}...{% endif %}</strong>
+              <small>{{ stats.latest_award.created_at.strftime("%b %d, %Y") }}</small>
+            {% else %}
+              <strong class="stat-value-small">—</strong>
+              <small>No submissions yet</small>
+            {% endif %}
+          </div>
         </div>
       </section>
 
-      <section class="card">
+      <section class="card grant-history-section">
         <div class="section-header">
-          <h3>Grant History</h3>
-          <a href="/awards/new">Create new grant</a>
+          <div>
+            <h3>Grant History</h3>
+            <p class="section-description">All your submitted grants and awards</p>
+          </div>
+          <a href="/awards/new" class="btn-create">Create New Grant</a>
         </div>
         {% if awards %}
         <div class="history-table-wrapper">
@@ -67,7 +84,7 @@
             <thead>
               <tr>
                 <th>Title</th>
-                <th>Sponsor Type</th>
+                <th>Sponsor</th>
                 <th>Amount</th>
                 <th>Timeline</th>
                 <th>Status</th>
@@ -76,18 +93,21 @@
             <tbody>
               {% for award in awards %}
               <tr>
-                <td>{{ award.title }}</td>
+                <td class="award-title">{{ award.title }}</td>
                 <td>{{ award.sponsor_type or '—' }}</td>
-                <td>${{ '%.2f' | format(award.amount) }}</td>
-                <td>{{ award.start_date }} → {{ award.end_date }}</td>
-                <td>{{ award.status }}</td>
+                <td class="award-amount">${{ '{:,.2f}'.format(award.amount) }}</td>
+                <td class="award-timeline">{{ award.start_date }} → {{ award.end_date }}</td>
+                <td><span class="status-badge status-{{ award.status.lower() }}">{{ award.status }}</span></td>
               </tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
         {% else %}
-          <p class="text-muted">No awards yet. <a href="/awards/new">Start a submission</a>.</p>
+          <div class="empty-state">
+            <p class="empty-text">No awards yet.</p>
+            <a href="/awards/new" class="btn-create">Create your first grant</a>
+          </div>
         {% endif %}
       </section>
     </main>
