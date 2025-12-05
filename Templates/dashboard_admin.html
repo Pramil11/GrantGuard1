@@ -64,7 +64,18 @@
                 </td>
                 <td>{{ a.start_date }}</td>
                 <td>{{ a.end_date }}</td>
-                <td>{{ a.status }}</td>
+                <td>
+                  {{ a.status }}
+                  {% if a.status == 'Pending' and a.ai_review_notes %}
+                    {% set compliance = a.ai_review_notes|from_json %}
+                    {% if compliance and not compliance.error %}
+                      <br>
+                      <small style="color: {% if compliance.university and compliance.university.result == 'non-compliant' or compliance.federal and compliance.federal.result == 'non-compliant' or compliance.sponsor and compliance.sponsor.result == 'non-compliant' %}#ef4444{% elif compliance.university and compliance.university.result == 'compliant' and compliance.federal and compliance.federal.result == 'compliant' and compliance.sponsor and compliance.sponsor.result == 'compliant' %}#10b981{% else %}#6b7280{% endif %};">
+                        AI: {% if compliance.university and compliance.university.result == 'non-compliant' or compliance.federal and compliance.federal.result == 'non-compliant' or compliance.sponsor and compliance.sponsor.result == 'non-compliant' %}⚠ Non-Compliant{% elif compliance.university and compliance.university.result == 'compliant' and compliance.federal and compliance.federal.result == 'compliant' and compliance.sponsor and compliance.sponsor.result == 'compliant' %}✓ Compliant{% else %}Pending Review{% endif %}
+                      </small>
+                    {% endif %}
+                  {% endif %}
+                </td>
                 <td>
                   <a class="btn-small-info"
                      href="{{ url_for('award_view', award_id=a.award_id) }}">View</a>

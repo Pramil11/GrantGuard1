@@ -30,6 +30,49 @@
            Grant overview
       ======================== -->
       <h2>{{ award.title }}</h2>
+      
+      <!-- AI Compliance Results Section (Admin only, for Pending awards) -->
+      {% if user.role == 'Admin' and award.status == 'Pending' %}
+      <div class="card" id="compliance-section" style="margin-top:24px; {% if not compliance_results %}display:none;{% endif %}">
+        <h3 style="margin-top:0;">AI Policy Compliance Check</h3>
+        {% if compliance_results and compliance_results.error %}
+          <p style="color: #ef4444;">Error: {{ compliance_results.error }}</p>
+        {% elif compliance_results %}
+          <div style="display: grid; gap: 16px;">
+            {% if compliance_results.university %}
+            <div style="padding: 12px; border-radius: 8px; border-left: 4px solid {% if compliance_results.university.result == 'compliant' %}#10b981{% elif compliance_results.university.result == 'non-compliant' %}#ef4444{% else %}#6b7280{% endif %}; background: {% if compliance_results.university.result == 'compliant' %}#f0fdf4{% elif compliance_results.university.result == 'non-compliant' %}#fef2f2{% else %}#f9fafb{% endif %};">
+              <strong>University Policy:</strong> 
+              <span style="text-transform: capitalize; font-weight: 600; color: {% if compliance_results.university.result == 'compliant' %}#10b981{% elif compliance_results.university.result == 'non-compliant' %}#ef4444{% else %}#6b7280{% endif %};">
+                {{ compliance_results.university.result }}
+              </span>
+              <p style="margin: 8px 0 0 0; color: #4b5563;">{{ compliance_results.university.reason }}</p>
+            </div>
+            {% endif %}
+            
+            {% if compliance_results.federal %}
+            <div style="padding: 12px; border-radius: 8px; border-left: 4px solid {% if compliance_results.federal.result == 'compliant' %}#10b981{% elif compliance_results.federal.result == 'non-compliant' %}#ef4444{% else %}#6b7280{% endif %}; background: {% if compliance_results.federal.result == 'compliant' %}#f0fdf4{% elif compliance_results.federal.result == 'non-compliant' %}#fef2f2{% else %}#f9fafb{% endif %};">
+              <strong>Federal Policy:</strong> 
+              <span style="text-transform: capitalize; font-weight: 600; color: {% if compliance_results.federal.result == 'compliant' %}#10b981{% elif compliance_results.federal.result == 'non-compliant' %}#ef4444{% else %}#6b7280{% endif %};">
+                {{ compliance_results.federal.result }}
+              </span>
+              <p style="margin: 8px 0 0 0; color: #4b5563;">{{ compliance_results.federal.reason }}</p>
+            </div>
+            {% endif %}
+            
+            {% if compliance_results.sponsor %}
+            <div style="padding: 12px; border-radius: 8px; border-left: 4px solid {% if compliance_results.sponsor.result == 'compliant' %}#10b981{% elif compliance_results.sponsor.result == 'non-compliant' %}#ef4444{% else %}#6b7280{% endif %}; background: {% if compliance_results.sponsor.result == 'compliant' %}#f0fdf4{% elif compliance_results.sponsor.result == 'non-compliant' %}#fef2f2{% else %}#f9fafb{% endif %};">
+              <strong>Sponsor Policy:</strong> 
+              <span style="text-transform: capitalize; font-weight: 600; color: {% if compliance_results.sponsor.result == 'compliant' %}#10b981{% elif compliance_results.sponsor.result == 'non-compliant' %}#ef4444{% else %}#6b7280{% endif %};">
+                {{ compliance_results.sponsor.result }}
+              </span>
+              <p style="margin: 8px 0 0 0; color: #4b5563;">{{ compliance_results.sponsor.reason }}</p>
+            </div>
+            {% endif %}
+          </div>
+        {% endif %}
+      </div>
+      {% endif %}
+      
       <div class="card">
         <p><strong>Funding Agency:</strong> {{ award.sponsor_type or 'N/A' }}</p>
         <p><strong>Amount:</strong> ${{ '%.2f'|format(award.amount or 0) }}</p>
@@ -207,6 +250,12 @@
   <a href="{{ url_for('download_award_excel', award_id=award.award_id) }}" class="btn btn-secondary" style="margin-left:8px;">
     Download Excel
   </a>
+  {% if user.role == 'Admin' and award.status == 'Pending' %}
+  <button id="check-compliance-btn" class="btn" style="margin-left:8px; background: #8b5cf6;">
+    <span id="check-compliance-text">Check AI Compliance</span>
+    <span id="check-compliance-loading" style="display:none;">Checking...</span>
+  </button>
+  {% endif %}
   {% if award.status == 'Approved' %}
   <a href="{{ url_for('budget_status', award_id=award.award_id) }}" class="btn" style="margin-left:8px; background: #0b84f3;">
     Budget Status
@@ -221,5 +270,113 @@
     </main>
   </div>
   <script src="{{ url_for('static', filename='theme.js') }}"></script>
+  {% if user.role == 'Admin' and award.status == 'Pending' %}
+  <script>
+    document.getElementById('check-compliance-btn')?.addEventListener('click', function() {
+      const btn = this;
+      const textSpan = document.getElementById('check-compliance-text');
+      const loadingSpan = document.getElementById('check-compliance-loading');
+      const complianceSection = document.getElementById('compliance-section');
+      
+      // Show loading state
+      textSpan.style.display = 'none';
+      loadingSpan.style.display = 'inline';
+      btn.disabled = true;
+      btn.style.opacity = '0.6';
+      
+      // Make API call
+      fetch(`/awards/{{ award.award_id }}/check-compliance`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+      .then(response => response.json())
+      .then(data => {
+        // Hide loading, show button again
+        textSpan.style.display = 'inline';
+        loadingSpan.style.display = 'none';
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        
+        // Show compliance section
+        if (complianceSection) {
+          complianceSection.style.display = 'block';
+          
+          // Update the content
+          let html = '<h3 style="margin-top:0;">AI Policy Compliance Check</h3>';
+          
+          if (data.error) {
+            html += `<p style="color: #ef4444;">Error: ${data.error}</p>`;
+          } else {
+            html += '<div style="display: grid; gap: 16px;">';
+            
+            if (data.university) {
+              const result = data.university.result;
+              const color = result === 'compliant' ? '#10b981' : result === 'non-compliant' ? '#ef4444' : '#6b7280';
+              const bgColor = result === 'compliant' ? '#f0fdf4' : result === 'non-compliant' ? '#fef2f2' : '#f9fafb';
+              html += `
+                <div style="padding: 12px; border-radius: 8px; border-left: 4px solid ${color}; background: ${bgColor};">
+                  <strong>University Policy:</strong> 
+                  <span style="text-transform: capitalize; font-weight: 600; color: ${color};">
+                    ${result}
+                  </span>
+                  <p style="margin: 8px 0 0 0; color: #4b5563;">${data.university.reason}</p>
+                </div>
+              `;
+            }
+            
+            if (data.federal) {
+              const result = data.federal.result;
+              const color = result === 'compliant' ? '#10b981' : result === 'non-compliant' ? '#ef4444' : '#6b7280';
+              const bgColor = result === 'compliant' ? '#f0fdf4' : result === 'non-compliant' ? '#fef2f2' : '#f9fafb';
+              html += `
+                <div style="padding: 12px; border-radius: 8px; border-left: 4px solid ${color}; background: ${bgColor};">
+                  <strong>Federal Policy:</strong> 
+                  <span style="text-transform: capitalize; font-weight: 600; color: ${color};">
+                    ${result}
+                  </span>
+                  <p style="margin: 8px 0 0 0; color: #4b5563;">${data.federal.reason}</p>
+                </div>
+              `;
+            }
+            
+            if (data.sponsor) {
+              const result = data.sponsor.result;
+              const color = result === 'compliant' ? '#10b981' : result === 'non-compliant' ? '#ef4444' : '#6b7280';
+              const bgColor = result === 'compliant' ? '#f0fdf4' : result === 'non-compliant' ? '#fef2f2' : '#f9fafb';
+              html += `
+                <div style="padding: 12px; border-radius: 8px; border-left: 4px solid ${color}; background: ${bgColor};">
+                  <strong>Sponsor Policy:</strong> 
+                  <span style="text-transform: capitalize; font-weight: 600; color: ${color};">
+                    ${result}
+                  </span>
+                  <p style="margin: 8px 0 0 0; color: #4b5563;">${data.sponsor.reason}</p>
+                </div>
+              `;
+            }
+            
+            html += '</div>';
+          }
+          
+          complianceSection.innerHTML = html;
+          
+          // Scroll to compliance section
+          complianceSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      })
+      .catch(error => {
+        console.error('Error checking compliance:', error);
+        alert('Error checking compliance. Please try again.');
+        
+        // Reset button
+        textSpan.style.display = 'inline';
+        loadingSpan.style.display = 'none';
+        btn.disabled = false;
+        btn.style.opacity = '1';
+      });
+    });
+  </script>
+  {% endif %}
 </body>
 </html>

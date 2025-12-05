@@ -15,12 +15,26 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
+from openai import OpenAI
 
 from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__, template_folder='Templates')
 app.secret_key = "change-this-to-any-random-secret"  # needed for session
+
+# Add custom Jinja2 filter for JSON parsing
+@app.template_filter('from_json')
+def from_json_filter(value):
+    """Parse JSON string in templates."""
+    if not value:
+        return None
+    try:
+        if isinstance(value, str):
+            return json.loads(value)
+        return value
+    except (json.JSONDecodeError, TypeError):
+        return None
 
 # ---- Admin global budget (1 million) ----
 ADMIN_INITIAL_BUDGET = 1_000_000
@@ -226,7 +240,7 @@ def dashboard():
                 cur.execute(
                     """
                     SELECT award_id, title, created_by_email, sponsor_type,
-                        amount, start_date, end_date, status, created_at
+                        amount, start_date, end_date, status, created_at, ai_review_notes
                     FROM awards
                     WHERE status <> 'Draft'
                     ORDER BY created_at DESC
@@ -234,11 +248,19 @@ def dashboard():
                 )
                 awards = cur.fetchall()
 
+                # Calculate total approved - sum all approved awards
                 cur.execute(
-                    "SELECT COALESCE(SUM(amount), 0) FROM awards WHERE status = 'Approved'"
+                    """
+                    SELECT COALESCE(SUM(amount), 0) as total
+                    FROM awards 
+                    WHERE status = 'Approved'
+                    """
                 )
                 row = cur.fetchone()
-                total_approved = float(row[0]) if row and row[0] is not None else 0.0
+                if row:
+                    total_approved = float(row['total']) if row['total'] is not None else 0.0
+                else:
+                    total_approved = 0.0
                 cur.close()
             except Exception as e:
                 print(f"DB fetch awards (admin) error: {e}")
@@ -633,6 +655,14 @@ def award_view(award_id):
         years = list(range(start.year, end.year + 1))
         duration_years = end.year - start.year + 1
 
+    # Load AI compliance results if they exist
+    compliance_results = None
+    if award.get('ai_review_notes'):
+        try:
+            compliance_results = json.loads(award['ai_review_notes'])
+        except (json.JSONDecodeError, TypeError):
+            compliance_results = None
+
     return render_template(
         "award_view.html",
         award=award,
@@ -642,6 +672,8 @@ def award_view(award_id):
         materials=materials,
         years=years,
         duration_years=duration_years,
+        compliance_results=compliance_results,
+        user=u,
     )
 
 
@@ -1331,7 +1363,7 @@ def award_approve(award_id):
         return make_response("DB connection failed", 500)
 
     try:
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
 
         # Amount of this award
         cur.execute("SELECT amount FROM awards WHERE award_id=%s", (award_id,))
@@ -1341,28 +1373,40 @@ def award_approve(award_id):
             conn.close()
             return "Award not found", 404
 
-        amount_val = row[0]
+        amount_val = row['amount']
         amount = float(amount_val) if amount_val is not None else 0.0
 
-        # Current approved total
-        cur.execute("SELECT COALESCE(SUM(amount), 0) FROM awards WHERE status='Approved'")
+        # Current approved total (EXCLUDE the current award being approved)
+        cur.execute(
+            """
+            SELECT COALESCE(SUM(amount), 0) as total
+            FROM awards 
+            WHERE status = 'Approved' AND award_id != %s
+            """,
+            (award_id,)
+        )
         row = cur.fetchone()
-        total_approved = float(row[0]) if row and row[0] is not None else 0.0
+        if row:
+            total_approved = float(row['total']) if row['total'] is not None else 0.0
+        else:
+            total_approved = 0.0
         remaining = float(ADMIN_INITIAL_BUDGET) - total_approved
 
         if remaining < amount:
             cur.close()
             conn.close()
-            return make_response("Not enough remaining admin budget to approve this award.", 400)
+            return make_response(f"Not enough remaining admin budget to approve this award. Remaining: ${remaining:,.2f}, Required: ${amount:,.2f}", 400)
 
+        # Update status to Approved
         cur.execute(
             "UPDATE awards SET status='Approved' WHERE award_id=%s",
             (award_id,),
         )
         conn.commit()
         cur.close()
+        conn.close()
         
-        # Initialize budget lines for approved award
+        # Initialize budget lines for approved award (must happen after commit)
         initialize_budget_lines(award_id)
     except Exception as e:
         print(f"DB approve award error: {e}")
@@ -1945,16 +1989,19 @@ def get_budget_status(award_id):
         # Calculate by category
         categories = {}
         
-        # Initialize from budget_lines
+        # Initialize from budget_lines (allocated amounts)
         for line in budget_lines:
             cat = line['category'] or 'Other'
+            # Skip "Total" category - we calculate totals separately
+            if cat == 'Total':
+                continue
             categories[cat] = {
                 'allocated': float(line['allocated_amount'] or 0),
-                'spent': float(line['spent_amount'] or 0),
-                'committed': float(line['committed_amount'] or 0),
+                'spent': 0,  # Will recalculate from transactions
+                'committed': 0,  # Will recalculate from transactions
             }
         
-        # Add transactions
+        # Calculate spent and committed from transactions (source of truth)
         for txn in transactions:
             cat = txn['category'] or 'Other'
             amount = float(txn['amount'] or 0)
@@ -2014,6 +2061,7 @@ def initialize_budget_lines(award_id):
         
         # Calculate budget by category from JSON data
         categories = {}
+        total_award = float(award['amount'] or 0)
         
         # Personnel
         personnel = json.loads(award['personnel_json']) if award['personnel_json'] else []
@@ -2056,8 +2104,11 @@ def initialize_budget_lines(award_id):
         
         # Other (remaining from total)
         total_allocated = sum(categories.values())
-        total_award = float(award['amount'] or 0)
         categories['Other'] = max(0, total_award - total_allocated)
+        
+        # If no detailed breakdown, allocate everything to "Other"
+        if total_allocated == 0 and total_award > 0:
+            categories['Other'] = total_award
         
         # Insert/update budget_lines
         for category, amount in categories.items():
@@ -2073,7 +2124,7 @@ def initialize_budget_lines(award_id):
                 exists = cur.fetchone()
                 
                 if exists:
-                    # Update
+                    # Update allocated amount (don't overwrite spent/committed)
                     cur.execute(
                         """
                         UPDATE budget_lines
@@ -2083,7 +2134,7 @@ def initialize_budget_lines(award_id):
                         (amount, award_id, category)
                     )
                 else:
-                    # Insert
+                    # Insert new budget line
                     cur.execute(
                         """
                         INSERT INTO budget_lines (award_id, category, allocated_amount, spent_amount, committed_amount)
@@ -2091,6 +2142,7 @@ def initialize_budget_lines(award_id):
                         """,
                         (award_id, category, amount)
                     )
+        
         
         conn.commit()
         cur.close()
@@ -2374,23 +2426,8 @@ def budget_status(award_id):
     
     # Initialize budget lines if award is approved and lines don't exist
     if award['status'] == 'Approved':
-        conn = get_db()
-        if conn is not None:
-            try:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT COUNT(*) FROM budget_lines WHERE award_id = %s",
-                    (award_id,)
-                )
-                count = cur.fetchone()[0]
-                cur.close()
-                
-                if count == 0:
-                    initialize_budget_lines(award_id)
-            except Exception as e:
-                print(f"Budget initialization check error: {e}")
-            finally:
-                conn.close()
+        # Always try to initialize - it will update if exists, create if not
+        initialize_budget_lines(award_id)
     
     budget_status_data = get_budget_status(award_id)
     
@@ -2453,15 +2490,35 @@ def transaction_approve(transaction_id):
         )
         
         # Move from committed to spent in budget_lines
+        # First ensure budget line exists
         cur.execute(
             """
-            UPDATE budget_lines
-            SET committed_amount = committed_amount - %s,
-                spent_amount = spent_amount + %s
+            SELECT line_id FROM budget_lines
             WHERE award_id = %s AND category = %s
             """,
-            (txn['amount'], txn['amount'], txn['award_id'], txn['category'])
+            (txn['award_id'], txn['category'])
         )
+        budget_line = cur.fetchone()
+        
+        if budget_line:
+            cur.execute(
+                """
+                UPDATE budget_lines
+                SET committed_amount = GREATEST(0, committed_amount - %s),
+                    spent_amount = spent_amount + %s
+                WHERE award_id = %s AND category = %s
+                """,
+                (txn['amount'], txn['amount'], txn['award_id'], txn['category'])
+            )
+        else:
+            # Create budget line if it doesn't exist
+            cur.execute(
+                """
+                INSERT INTO budget_lines (award_id, category, allocated_amount, spent_amount, committed_amount)
+                VALUES (%s, %s, 0, %s, 0)
+                """,
+                (txn['award_id'], txn['category'], txn['amount'])
+            )
         
         conn.commit()
         cur.close()
@@ -2514,12 +2571,22 @@ def transaction_decline(transaction_id):
         # Remove from committed amount in budget_lines
         cur.execute(
             """
-            UPDATE budget_lines
-            SET committed_amount = committed_amount - %s
+            SELECT line_id FROM budget_lines
             WHERE award_id = %s AND category = %s
             """,
-            (txn['amount'], award_id, txn['category'])
+            (award_id, txn['category'] or 'Other')
         )
+        budget_line = cur.fetchone()
+        
+        if budget_line:
+            cur.execute(
+                """
+                UPDATE budget_lines
+                SET committed_amount = GREATEST(0, committed_amount - %s)
+                WHERE award_id = %s AND category = %s
+                """,
+                (txn['amount'], award_id, txn['category'] or 'Other')
+            )
         
         conn.commit()
         cur.close()
@@ -2744,6 +2811,253 @@ def university_policies():
 def logout():
     session.clear()
     return redirect(url_for("home"))
+
+
+# ========== LLM POLICY COMPLIANCE CHECKING ==========
+
+def read_policy_file(policy_name):
+    """Read policy text from file."""
+    policy_path = os.path.join("policies", f"{policy_name}_policy.txt")
+    try:
+        with open(policy_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        print(f"Policy file not found: {policy_path}")
+        return ""
+    except Exception as e:
+        print(f"Error reading policy file {policy_path}: {e}")
+        return ""
+
+
+def format_award_for_llm(award, personnel, domestic_travel, international_travel, materials):
+    """Format award data into a structured text for LLM analysis."""
+    award_text = f"""
+AWARD INFORMATION:
+- Title: {award.get('title', 'N/A')}
+- Sponsor Type: {award.get('sponsor_type', 'N/A')}
+- Total Amount: ${float(award.get('amount', 0) or 0):,.2f}
+- Start Date: {award.get('start_date', 'N/A')}
+- End Date: {award.get('end_date', 'N/A')}
+- Department: {award.get('department', 'N/A')}
+- College: {award.get('college', 'N/A')}
+
+BUDGET BREAKDOWN:
+- Personnel Budget: ${float(award.get('budget_personnel', 0) or 0):,.2f}
+- Equipment Budget: ${float(award.get('budget_equipment', 0) or 0):,.2f}
+- Travel Budget: ${float(award.get('budget_travel', 0) or 0):,.2f}
+- Materials Budget: ${float(award.get('budget_materials', 0) or 0):,.2f}
+"""
+    
+    if personnel:
+        award_text += "\nPERSONNEL DETAILS:\n"
+        for p in personnel:
+            if isinstance(p, dict):
+                name = p.get('name', 'Unknown')
+                role = p.get('role', 'N/A')
+                hours_list = p.get('hours', [])
+                total_hours = 0
+                if isinstance(hours_list, list):
+                    for h in hours_list:
+                        if isinstance(h, dict):
+                            total_hours += float(h.get('hours', 0) or 0)
+                award_text += f"- {name} ({role}): {total_hours} hours\n"
+    
+    if domestic_travel:
+        award_text += "\nDOMESTIC TRAVEL:\n"
+        for t in domestic_travel:
+            if isinstance(t, dict):
+                destination = t.get('destination', 'N/A')
+                days = t.get('days', 0)
+                flight = t.get('flight', 0)
+                award_text += f"- {destination}: {days} days, Flight: ${float(flight or 0):,.2f}\n"
+    
+    if international_travel:
+        award_text += "\nINTERNATIONAL TRAVEL:\n"
+        for t in international_travel:
+            if isinstance(t, dict):
+                destination = t.get('destination', 'N/A')
+                days = t.get('days', 0)
+                flight = t.get('flight', 0)
+                award_text += f"- {destination}: {days} days, Flight: ${float(flight or 0):,.2f}\n"
+    
+    if materials:
+        award_text += "\nMATERIALS & SUPPLIES:\n"
+        for m in materials:
+            if isinstance(m, dict):
+                item = m.get('item', 'N/A')
+                cost = m.get('cost', 0)
+                award_text += f"- {item}: ${float(cost or 0):,.2f}\n"
+    
+    return award_text
+
+
+def check_policy_compliance(award, personnel, domestic_travel, international_travel, materials):
+    """
+    Check award compliance against University, Sponsor, and Federal policies using LLM.
+    Returns a dict with compliance results for each policy level.
+    """
+    # Read policy files
+    university_policy = read_policy_file("university")
+    federal_policy = read_policy_file("federal")
+    sponsor_policy = read_policy_file("sponsor")
+    
+    # Format award data
+    award_text = format_award_for_llm(award, personnel, domestic_travel, international_travel, materials)
+    
+    # Get OpenAI API key from environment
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return {
+            "error": "OpenAI API key not configured",
+            "university": {"result": "unknown", "reason": "API key missing"},
+            "federal": {"result": "unknown", "reason": "API key missing"},
+            "sponsor": {"result": "unknown", "reason": "API key missing"}
+        }
+    
+    # Initialize OpenAI client
+    client = OpenAI(api_key=api_key)
+    
+    results = {}
+    
+    # Check each policy level
+    policy_checks = [
+        ("university", "University", university_policy),
+        ("federal", "Federal", federal_policy),
+        ("sponsor", "Sponsor", sponsor_policy)
+    ]
+    
+    for key, name, policy_text in policy_checks:
+        if not policy_text:
+            results[key] = {"result": "unknown", "reason": f"{name} policy text not available"}
+            continue
+        
+        try:
+            prompt = f"""You are an AI Policy Compliance Officer for a Post-Award Research Budget Management System.
+
+Your job is to check whether a research award complies with {name} policy.
+
+You must base every decision ONLY on the policy text provided. Do not assume or invent any rules.
+
+POLICY TEXT:
+{policy_text}
+
+AWARD DATA:
+{award_text}
+
+Analyze the award against the {name} policy above. Your output must be a JSON object in this exact format:
+{{
+  "result": "compliant" | "non-compliant" | "unknown",
+  "reason": "Short and clear explanation referencing specific policy text."
+}}
+
+Only return the JSON object, nothing else."""
+
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",  # Using gpt-4o-mini for cost efficiency
+                messages=[
+                    {"role": "system", "content": "You are a policy compliance officer. Always respond with valid JSON only."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,  # Lower temperature for more consistent results
+                max_tokens=500
+            )
+            
+            # Parse JSON response
+            response_text = response.choices[0].message.content.strip()
+            # Remove markdown code blocks if present
+            if response_text.startswith("```"):
+                response_text = response_text.split("```")[1]
+                if response_text.startswith("json"):
+                    response_text = response_text[4:]
+                response_text = response_text.strip()
+            
+            compliance_result = json.loads(response_text)
+            results[key] = compliance_result
+            
+        except json.JSONDecodeError as e:
+            print(f"Error parsing JSON response for {name} policy: {e}")
+            print(f"Response was: {response_text}")
+            results[key] = {"result": "unknown", "reason": f"Error parsing LLM response: {str(e)}"}
+        except Exception as e:
+            print(f"Error checking {name} policy compliance: {e}")
+            results[key] = {"result": "unknown", "reason": f"Error: {str(e)}"}
+    
+    return results
+
+
+@app.route("/awards/<int:award_id>/check-compliance", methods=["POST"])
+def check_award_compliance(award_id):
+    """Check policy compliance for an award using LLM."""
+    u = session.get("user")
+    if not u:
+        return make_response(json.dumps({"error": "Not authenticated"}), 401, {"Content-Type": "application/json"})
+    
+    # Only Admin can check compliance
+    if u.get("role") != "Admin":
+        return make_response(json.dumps({"error": "Unauthorized"}), 403, {"Content-Type": "application/json"})
+    
+    conn = get_db()
+    if conn is None:
+        return make_response(json.dumps({"error": "DB connection failed"}), 500, {"Content-Type": "application/json"})
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Get award
+        cur.execute("SELECT * FROM awards WHERE award_id=%s", (award_id,))
+        award = cur.fetchone()
+        
+        if not award:
+            cur.close()
+            conn.close()
+            return make_response(json.dumps({"error": "Award not found"}), 404, {"Content-Type": "application/json"})
+        
+        # Parse JSON fields
+        def parse_json(field_name):
+            raw = award.get(field_name)
+            if raw is None:
+                return []
+            if isinstance(raw, (dict, list)):
+                return raw
+            try:
+                return json.loads(raw)
+            except Exception:
+                return []
+        
+        personnel = parse_json("personnel_json")
+        domestic_travel = parse_json("domestic_travel_json")
+        international_travel = parse_json("international_travel_json")
+        materials = parse_json("materials_json")
+        
+        cur.close()
+        conn.close()
+        
+        # Check compliance
+        compliance_results = check_policy_compliance(award, personnel, domestic_travel, international_travel, materials)
+        
+        # Store results in database (optional - update ai_review_notes)
+        if "error" not in compliance_results:
+            conn = get_db()
+            if conn:
+                try:
+                    cur = conn.cursor()
+                    notes = json.dumps(compliance_results)
+                    cur.execute(
+                        "UPDATE awards SET ai_review_notes = %s WHERE award_id = %s",
+                        (notes, award_id)
+                    )
+                    conn.commit()
+                    cur.close()
+                except Exception as e:
+                    print(f"Error saving compliance results: {e}")
+                finally:
+                    conn.close()
+        
+        return make_response(json.dumps(compliance_results, indent=2), 200, {"Content-Type": "application/json"})
+        
+    except Exception as e:
+        print(f"Error checking compliance: {e}")
+        return make_response(json.dumps({"error": str(e)}), 500, {"Content-Type": "application/json"})
 
 
 @app.route("/admin/init-db", methods=["GET", "POST"])
