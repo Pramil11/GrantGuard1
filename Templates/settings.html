@@ -7,7 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
   <div class="app-shell">
@@ -33,13 +33,14 @@
       <header>
         <div>
           <h2>Workspace Settings</h2>
+          <p style="margin: 8px 0 0 0; font-size: 0.875em; color: #6b7280;">Manage your preferences and customize your experience</p>
         </div>
         <div class="settings-actions">
-          <button type="button" id="resetPreferences">Reset Preferences</button>
+          <button type="button" id="resetPreferences">Reset All Preferences</button>
         </div>
       </header>
 
-      <section class="settings-card accent">
+      <section class="settings-card">
         <h3>Display & Accessibility</h3>
         <p>Choose a theme and font size that keep you comfortable all day.</p>
 
@@ -53,29 +54,80 @@
           <div class="settings-row">
             <label class="option-pill">
               <input type="radio" name="theme" value="light">
-              Light (default)
+              <span>Light</span>
             </label>
             <label class="option-pill">
               <input type="radio" name="theme" value="dark">
-              Dark
+              <span>Dark</span>
             </label>
           </div>
         </div>
 
         <div class="settings-block">
-          <h4>Font size</h4>
+          <h4>Font Size</h4>
           <div class="settings-row">
             <label class="option-pill">
               <input type="radio" name="font-size" value="small">
-              Small
+              <span>Small</span>
             </label>
             <label class="option-pill">
               <input type="radio" name="font-size" value="medium">
-              Medium
+              <span>Medium</span>
             </label>
             <label class="option-pill">
               <input type="radio" name="font-size" value="large">
-              Large
+              <span>Large</span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-card">
+        <h3>Notifications</h3>
+        <p>Control how and when you receive updates about your grants and awards.</p>
+
+        <div class="settings-block">
+          <div class="toggle-switch">
+            <div class="toggle-switch-label">
+              <strong>Email Notifications</strong>
+              <span>Receive email updates for grant status changes</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="emailNotifications" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="toggle-switch">
+            <div class="toggle-switch-label">
+              <strong>Browser Notifications</strong>
+              <span>Show desktop notifications for important updates</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="browserNotifications">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="toggle-switch">
+            <div class="toggle-switch-label">
+              <strong>Grant Approvals</strong>
+              <span>Notify when grants are approved or require action</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="grantApprovals" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="toggle-switch">
+            <div class="toggle-switch-label">
+              <strong>Budget Alerts</strong>
+              <span>Alert when budget thresholds are reached</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="budgetAlerts" checked>
+              <span class="slider"></span>
             </label>
           </div>
         </div>
@@ -85,5 +137,65 @@
 
   <!-- shared theme + font-size logic -->
   <script src="{{ url_for('static', filename='theme.js') }}"></script>
+  <script>
+    // Settings page specific functionality
+    (function() {
+      // Load saved notification preferences
+      function loadNotificationSettings() {
+        const emailNotif = localStorage.getItem('gg-email-notifications');
+        const browserNotif = localStorage.getItem('gg-browser-notifications');
+        const grantApprovals = localStorage.getItem('gg-grant-approvals');
+        const budgetAlerts = localStorage.getItem('gg-budget-alerts');
+
+        if (emailNotif !== null) {
+          document.getElementById('emailNotifications').checked = emailNotif === 'true';
+        }
+        if (browserNotif !== null) {
+          document.getElementById('browserNotifications').checked = browserNotif === 'true';
+        }
+        if (grantApprovals !== null) {
+          document.getElementById('grantApprovals').checked = grantApprovals === 'true';
+        }
+        if (budgetAlerts !== null) {
+          document.getElementById('budgetAlerts').checked = budgetAlerts === 'true';
+        }
+      }
+
+      // Save notification preferences
+      function saveNotificationSettings() {
+        document.getElementById('emailNotifications').addEventListener('change', (e) => {
+          localStorage.setItem('gg-email-notifications', e.target.checked);
+        });
+        document.getElementById('browserNotifications').addEventListener('change', (e) => {
+          localStorage.setItem('gg-browser-notifications', e.target.checked);
+        });
+        document.getElementById('grantApprovals').addEventListener('change', (e) => {
+          localStorage.setItem('gg-grant-approvals', e.target.checked);
+        });
+        document.getElementById('budgetAlerts').addEventListener('change', (e) => {
+          localStorage.setItem('gg-budget-alerts', e.target.checked);
+        });
+      }
+
+      // Reset all preferences
+      function resetPreferences() {
+        if (confirm('Are you sure you want to reset all preferences to default values? This action cannot be undone.')) {
+          localStorage.clear();
+          location.reload();
+        }
+      }
+
+      // Initialize on page load
+      document.addEventListener('DOMContentLoaded', () => {
+        loadNotificationSettings();
+        saveNotificationSettings();
+
+        const resetBtn = document.getElementById('resetPreferences');
+        if (resetBtn) {
+          resetBtn.addEventListener('click', resetPreferences);
+        }
+      });
+    })();
+  </script>
 </body>
 </html>

@@ -6,6 +6,9 @@
     {% if award %}Edit Grant/Award{% else %}Create New Grant/Award{% endif %}
   </title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
   <div class="app-shell">
@@ -52,7 +55,7 @@
             <!-- Funding agency -->
             <select name="sponsor_type" required
                     style="flex:1; padding:12px; border-radius:10px;
-                           border:1px solid #ccc; background:#f1f3f4;">
+                           border:1px solid #ccc;">
               <option value="" disabled {% if not award %}selected{% endif %}>Funding Agency</option>
               <option value="NSF" {% if award and award.sponsor_type=='NSF' %}selected{% endif %}>NSF</option>
               <option value="NIH" {% if award and award.sponsor_type=='NIH' %}selected{% endif %}>NIH</option>
@@ -86,7 +89,7 @@
                      name="start_date"
                      required
                      style="width:100%; padding:10px; border-radius:10px;
-                            border:1px solid #ccc; background:#f1f3f4;"
+                            border:1px solid #ccc;"
                      value="{{ award.start_date if award and award.start_date else '' }}">
             </label>
             <label style="flex:1;">
@@ -96,7 +99,7 @@
                      name="end_date"
                      required
                      style="width:100%; padding:10px; border-radius:10px;
-                            border:1px solid #ccc; background:#f1f3f4;"
+                            border:1px solid #ccc;"
                      value="{{ award.end_date if award and award.end_date else '' }}">
             </label>
           </div>
@@ -107,7 +110,7 @@
           <h3>Research Details</h3>
           <textarea name="abstract" rows="4"
                     placeholder="Abstract / Description – short paragraph about research goals"
-                    style="padding:12px; border-radius:10px; border:1px solid #ccc; background:#f1f3f4;">{{ award.abstract if award else '' }}</textarea>
+                    style="padding:12px; border-radius:10px; border:1px solid #ccc;">{{ award.abstract if award else '' }}</textarea>
           <input type="text" name="keywords"
                  placeholder="Keywords / Focus Area (e.g., AI, Climate Modeling)"
                  value="{{ award.keywords if award else '' }}">

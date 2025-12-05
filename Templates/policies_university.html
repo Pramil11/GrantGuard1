@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <title>University Policies - GrandGuard</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
   <div class="app-shell">
@@ -25,9 +28,9 @@
     <main class="content policies-page">
       <header class="policies-hero">
         <div>
+          <a class="back-link" href="/dashboard">← Back to dashboard</a>
           <h1>Policies for Research</h1>
         </div>
-        <a class="btn" href="/dashboard">Back to Dashboard</a>
       </header>
 
       <div class="policy-grid">
@@ -35,10 +38,10 @@
         <details class="policy-card">
           <summary>
             <div>
-              <p class="eyebrow">{{ policy.level }} policy</p>
+              <span class="eyebrow">{{ policy.level }} Policy</span>
               <h3>{{ policy.title }}</h3>
             </div>
-            <span class="chevron">⌃</span>
+            <span class="chevron">▼</span>
           </summary>
           <div class="policy-body">
             {% for section in policy.sections %}
