@@ -34,12 +34,7 @@
       </section>
 
       <section class="card" style="margin-top:24px;">
-        <h3>Grants after AI Review</h3>
-        <p style="font-size:0.9rem; color:#555; margin-bottom:10px;">
-          Admin can approve or decline only grants that passed AI checks
-          (status = <strong>AI pass</strong>). Other statuses are shown for record.
-        </p>
-
+        <h3>All Submitted Grants</h3>
         {% if awards %}
           <table class="budget-table">
             <thead>
@@ -71,25 +66,22 @@
                 <td>{{ a.end_date }}</td>
                 <td>{{ a.status }}</td>
                 <td>
-                    <a class="btn-small-info"
-                        href="{{ url_for('award_view', award_id=a.award_id) }}">View</a>
+                  <a class="btn-small-info"
+                     href="{{ url_for('award_view', award_id=a.award_id) }}">View</a>
 
-                    {# Show Approve/Decline only for grants that passed AI #}
-                    {% if a.status and a.status|lower == 'ai passed' %}
-                        <form method="post"
-                            action="{{ url_for('award_approve', award_id=a.award_id) }}"
-                            style="display:inline;">
-                        <button type="submit" class="btn-small-success">Approve</button>
-                        </form>
-
-                        <form method="post"
-                            action="{{ url_for('award_decline', award_id=a.award_id) }}"
-                            style="display:inline;">
-                        <button type="submit" class="btn-small-danger">Decline</button>
-                        </form>
-                    {% endif %}
-                    </td>
-
+                  {% if a.status == 'Pending' %}
+                    <form method="post"
+                          action="{{ url_for('award_approve', award_id=a.award_id) }}"
+                          style="display:inline;">
+                      <button type="submit" class="btn-small-success">Approve</button>
+                    </form>
+                    <form method="post"
+                          action="{{ url_for('award_decline', award_id=a.award_id) }}"
+                          style="display:inline;">
+                      <button type="submit" class="btn-small-danger">Decline</button>
+                    </form>
+                  {% endif %}
+                </td>
               </tr>
             {% endfor %}
             </tbody>

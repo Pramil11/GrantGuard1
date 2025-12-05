@@ -29,43 +29,53 @@
     </aside>
 
     <!-- Main content -->
-    <main class="content">
-      <h2>Settings</h2>
+    <main class="content settings-page">
+      <header>
+        <div>
+          <h2>Workspace Settings</h2>
+        </div>
+        <div class="settings-actions">
+          <button type="button" id="resetPreferences">Reset Preferences</button>
+        </div>
+      </header>
 
-      <section class="card" style="margin-top:24px;">
+      <section class="settings-card accent">
         <h3>Display & Accessibility</h3>
-        <p>Adjust font size and theme for your GrandGuard dashboard.</p>
+        <p>Choose a theme and font size that keep you comfortable all day.</p>
 
-        <!-- FONT SIZE -->
-        <div style="margin-top:16px;">
-          <h4>Font size</h4>
+        <div class="theme-preview" aria-hidden="true">
+          <div class="preview-sidebar"></div>
+          <div class="preview-content"></div>
+        </div>
+
+        <div class="settings-block">
+          <h4>Theme</h4>
           <div class="settings-row">
-            <label>
-              <input type="radio" name="font-size" value="small">
-              Small
+            <label class="option-pill">
+              <input type="radio" name="theme" value="light">
+              Light (default)
             </label>
-            <label>
-              <input type="radio" name="font-size" value="medium">
-              Medium (default)
-            </label>
-            <label>
-              <input type="radio" name="font-size" value="large">
-              Large
+            <label class="option-pill">
+              <input type="radio" name="theme" value="dark">
+              Dark
             </label>
           </div>
         </div>
 
-        <!-- THEME -->
-        <div style="margin-top:24px;">
-          <h4>Theme</h4>
+        <div class="settings-block">
+          <h4>Font size</h4>
           <div class="settings-row">
-            <label>
-              <input type="radio" name="theme" value="light">
-              Light (default)
+            <label class="option-pill">
+              <input type="radio" name="font-size" value="small">
+              Small
             </label>
-            <label>
-              <input type="radio" name="theme" value="dark">
-              Dark
+            <label class="option-pill">
+              <input type="radio" name="font-size" value="medium">
+              Medium
+            </label>
+            <label class="option-pill">
+              <input type="radio" name="font-size" value="large">
+              Large
             </label>
           </div>
         </div>

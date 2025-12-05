@@ -22,23 +22,41 @@
         <a href="/logout">Log out</a>
       </nav>
     </aside>
-    <main class="content">
-      <h2>University Policies</h2>
-      <p>These are the official university-level rules for spending and compliance.</p>
-
-      {% if policies %}
-        <div class="policy-list">
-          {% for policy in policies %}
-            <div class="policy-card">
-              <h3>{{ policy.source_name }}</h3>
-              <p>{{ policy.policy_text }}</p>
-            </div>
-          {% endfor %}
+    <main class="content policies-page">
+      <header class="policies-hero">
+        <div>
+          <h1>Policies for Research</h1>
         </div>
-      {% else %}
-        <p>No university policies found in the database.</p>
-      {% endif %}
+        <a class="btn" href="/dashboard">Back to Dashboard</a>
+      </header>
+
+      <div class="policy-grid">
+        {% for policy in policies %}
+        <details class="policy-card">
+          <summary>
+            <div>
+              <p class="eyebrow">{{ policy.level }} policy</p>
+              <h3>{{ policy.title }}</h3>
+            </div>
+            <span class="chevron">⌃</span>
+          </summary>
+          <div class="policy-body">
+            {% for section in policy.sections %}
+            <div class="policy-section">
+              <h4>{{ section.heading }}</h4>
+              <ul>
+                {% for rule in section.rules %}
+                <li>{{ rule }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endfor %}
+          </div>
+        </details>
+        {% endfor %}
+      </div>
     </main>
   </div>
+  <script src="{{ url_for('static', filename='theme.js') }}"></script>
 </body>
 </html>

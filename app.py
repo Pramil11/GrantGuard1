@@ -14,35 +14,40 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
-from openai import OpenAI
+
+from dotenv import load_dotenv
+load_dotenv()
 
 app = Flask(__name__, template_folder='Templates')
-app.secret_key = "change-this-to-any-random-secret"
+app.secret_key = "change-this-to-any-random-secret"  # needed for session
 
+# ---- Admin global budget (1 million) ----
 ADMIN_INITIAL_BUDGET = 1_000_000
 
-# 1) DB + OpenAI config
-# On Render you will set DATABASE_URL to the *internal* Render Postgres URL.
-DATABASE_URL = os.getenv("DATABASE_URL")
+# ---- DB config (use environment variables in deployment) ----
+DATABASE_URL = os.getenv("DATABASE_URL")  # Render provides this
 
-# Local fallback (only used when DATABASE_URL is NOT set, e.g. on your laptop)
-if not DATABASE_URL:
-    DB_HOST = os.getenv("PGHOST", "localhost")
-    DB_USER = os.getenv("PGUSER", "postgres")
-    DB_PASS = os.getenv("PGPASSWORD", "")
-    DB_NAME = os.getenv("PGDATABASE", "grandguard_db")
+if DATABASE_URL:
+    # Parse DATABASE_URL: postgresql://user:pass@host:port/dbname
+    import urllib.parse as urlparse
+    urlparse.uses_netloc.append("postgresql")
+    url = urlparse.urlparse(DATABASE_URL)
+    DB_HOST = url.hostname
+    DB_USER = url.username
+    DB_PASS = url.password
+    DB_NAME = url.path[1:]  # Remove leading /
+    DB_PORT = url.port or 5432
+else:
+    # Local / fallback creds
+    DB_HOST = os.getenv("PGHOST", "dpg-d426gaje5dus73bfka20-a.oregon-postgres.render.com")
+    DB_USER = os.getenv("PGUSER", "admin_user")
+    DB_PASS = os.getenv("PGPASSWORD", "NXUMDSA8WjBCkn5xBKFkxQGaKGaxNie8")
+    DB_NAME = os.getenv("PGDATABASE", "grandguard")
     DB_PORT = int(os.getenv("PGPORT", "5432"))
 
-# OpenAI config (used by AI checks)
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if OPENAI_API_KEY:
-    client = OpenAI(api_key=OPENAI_API_KEY)
-else:
-    client = None
-    print("WARNING: OPENAI_API_KEY is not set. AI checks will be skipped.")
 
-# 2) get_db() ✅ uses DATABASE_URL when present
 def get_db():
+    """Create a connection per request. No app-start crash if creds are wrong."""
     try:
         if DATABASE_URL:
             conn = psycopg2.connect(DATABASE_URL)
@@ -53,129 +58,13 @@ def get_db():
                 password=DB_PASS,
                 database=DB_NAME,
                 port=DB_PORT,
-            )
+        )
         return conn
     except Exception as e:
         print(f"DB connect error: {e}")
         return None
 
-def run_award_ai_check(award_row: dict) -> dict:
-    """
-    Call OpenAI to check whether this award complies with
-    university, sponsor, and federal policies.
 
-    Returns a dict like:
-    {"decision": "approve" or "decline" or "skip", "reason": "..."}
-    """
-    # If no API key / client, just skip
-    if client is None:
-        return {
-            "decision": "skip",
-            "reason": "AI check skipped (no API key configured)."
-        }
-
-    # Join all three policies into one text block
-    policies_text = f"""
-UNIVERSITY POLICY
------------------
-{POLICIES.get("university", "")}
-
-SPONSOR POLICY
---------------
-{POLICIES.get("sponsor", "")}
-
-FEDERAL POLICY
---------------
-{POLICIES.get("federal", "")}
-"""
-
-    # Short summary of the grant for the model
-    grant_summary = f"""
-Title: {award_row.get('title')}
-Sponsor type: {award_row.get('sponsor_type')}
-Amount: {award_row.get('amount')}
-Department: {award_row.get('department')}
-College: {award_row.get('college')}
-Contact email: {award_row.get('contact_email')}
-Abstract:
-{award_row.get('abstract')}
-
-Keywords: {award_row.get('keywords')}
-Collaborators: {award_row.get('collaborators')}
-"""
-
-    # 🔹 THIS IS THE PROMPT YOU ASKED ABOUT
-    prompt = f"""
-You are an AI compliance assistant for university research grants.
-
-Your job is to decide if the grant below clearly follows ALL THREE policy documents
-(University, Sponsor, and Federal).
-
-Be very strict:
-
-- Only return "approve" if the grant is clearly compliant AND you see no possible conflicts.
-- If there is missing information, uncertainty, or any possible conflict, you MUST return "decline".
-
-Respond strictly in valid JSON:
-{{
-  "decision": "approve" or "decline",
-  "reason": "short explanation of why you approved or declined, referencing specific policies if possible"
-}}
-
-=== POLICIES ===
-{policies_text}
-
-=== GRANT PROPOSAL ===
-{grant_summary}
-"""
-
-    try:
-        # Call OpenAI (chat completions style)
-        resp = client.chat.completions.create(
-            model="gpt-4.1-mini",   # or any other model you prefer
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0,
-        )
-
-        raw_content = resp.choices[0].message.content.strip()
-
-        # Try to parse JSON from the model output
-        try:
-            data = json.loads(raw_content)
-        except json.JSONDecodeError:
-            # If it wrapped JSON in text, try to extract the JSON part
-            start = raw_content.find("{")
-            end = raw_content.rfind("}")
-            if start != -1 and end != -1:
-                data = json.loads(raw_content[start:end+1])
-            else:
-                # Fall back: treat as decline
-                return {
-                    "decision": "decline",
-                    "reason": f"Model returned non-JSON response: {raw_content}"
-                }
-
-        decision = data.get("decision", "").lower()
-        reason = data.get("reason", "")
-
-        if decision not in ("approve", "decline"):
-            # Safety fallback
-            return {
-                "decision": "decline",
-                "reason": f"Invalid decision from model: {decision!r}. Raw: {raw_content}"
-            }
-
-        return {
-            "decision": decision,
-            "reason": reason or "No reason provided by model."
-        }
-
-    except Exception as e:
-        # If API call fails, treat as decline so nothing unsafe is auto-approved
-        return {
-            "decision": "decline",
-            "reason": f"AI check failed with error: {e}"
-        }
 def init_db_if_needed():
     """Initialize database schema if tables don't exist."""
     conn = get_db()
@@ -201,117 +90,6 @@ def init_db_if_needed():
     finally:
         conn.close()
 
-# -------- Policy files --------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-POLICY_DIR = os.path.join(BASE_DIR, "policies")
-
-
-def _read_policy(filename: str) -> str:
-    """Read a policy text file from the policies/ folder."""
-    path = os.path.join(POLICY_DIR, filename)
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        # For now just return empty text if missing
-        return ""
-
-POLICIES = {
-    "university": _read_policy("university_policy.txt"),
-    "sponsor": _read_policy("sponsor_policy.txt"),
-    "federal": _read_policy("federal_policy.txt"),
-}
-def _build_award_summary(award: dict) -> str:
-    """Turn an award row into a compact text summary for the AI."""
-    parts = [
-        f"Title: {award.get('title', '')}",
-        f"Abstract: {award.get('abstract', '')}",
-        f"Sponsor type: {award.get('sponsor_type', '')}",
-        f"Department: {award.get('department', '')}",
-        f"College: {award.get('college', '')}",
-        f"Total amount: {award.get('amount', '')}",
-        f"Start date: {award.get('start_date', '')}",
-        f"End date: {award.get('end_date', '')}",
-        f"Keywords: {award.get('keywords', '')}",
-        f"Collaborators: {award.get('collaborators', '')}",
-    ]
-    return "\n".join(parts)
-
-
-def _run_ai_policy_check(award: dict):
-    """
-    Call OpenAI to check if the grant follows
-    university + sponsor + federal policies.
-
-    Returns:
-      ("pass" | "fail" | "unknown", reason_text)
-    """
-    if client is None:
-        msg = "AI check skipped (no OPENAI_API_KEY configured)."
-        print(msg)
-        return "unknown", msg
-
-    uni_policy = POLICIES.get("university", "")
-    sponsor_policy = POLICIES.get("sponsor", "")
-    federal_policy = POLICIES.get("federal", "")
-
-    grant_text = _build_award_summary(award)
-
-    prompt = f"""
-You are an assistant checking if a research grant follows three policy sets.
-
-UNIVERSITY POLICY:
-{uni_policy}
-
-SPONSOR POLICY:
-{sponsor_policy}
-
-FEDERAL POLICY:
-{federal_policy}
-
-GRANT APPLICATION TO REVIEW:
-{grant_text}
-
-TASK:
-1. Decide if the grant clearly follows all three policy sets.
-2. Reply in this exact format:
-
-DECISION: APPROVE or REJECT
-REASON: short explanation (2-4 sentences)
-"""
-
-    try:
-        resp = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a strict compliance checker for research grant policies."
-                },
-                {
-                    "role": "user",
-                    "content": prompt.strip()
-                },
-            ],
-            temperature=0,
-        )
-        content = resp.choices[0].message.content or ""
-        print("AI raw response:\n", content)          # DEBUG: show full reply
-    except Exception as e:
-        msg = f"AI error: {e}"
-        print(msg)                                     # DEBUG: show error
-        return "unknown", msg
-
-    first_line = content.splitlines()[0].strip().upper()
-    print("AI first line for decision:", first_line)   # DEBUG: show parsed line
-
-    if "REJECT" in first_line or "DECLINE" in first_line:
-        return "fail", content
-    elif "APPROVE" in first_line:
-        return "pass", content
-    else:
-        # Could not confidently parse decision
-        return "unknown", content
 
 @app.route("/")
 def home():
@@ -407,42 +185,27 @@ def dashboard():
     # ---------- Admin dashboard ----------
     if u["role"] == "Admin":
         awards = []
-        ready_awards = []  # AI Passed
         total_approved = 0.0
         conn = get_db()
         if conn is not None:
             try:
                 cur = conn.cursor(cursor_factory=RealDictCursor)
-                # All awards, from all PIs
                 cur.execute(
                     """
                     SELECT award_id, title, created_by_email, sponsor_type,
-                           amount, start_date, end_date, status, created_at,
-                           ai_review_notes
+                        amount, start_date, end_date, status, created_at
                     FROM awards
+                    WHERE status <> 'Draft'
                     ORDER BY created_at DESC
                     """
                 )
                 awards = cur.fetchall()
 
-                # Subset that has passed AI
-                ready_awards = [
-                    a for a in awards
-                    if (a.get("status") or "").lower() == "ai passed"
-                ]
-
-                # Sum of approved amounts
                 cur.execute(
-                """
-                SELECT COALESCE(SUM(amount), 0) AS total_approved
-                FROM awards
-                WHERE status = 'Approved'
-                """
-            )
+                    "SELECT COALESCE(SUM(amount), 0) FROM awards WHERE status = 'Approved'"
+                )
                 row = cur.fetchone()
-                total_approved = 0.0
-                if row and row.get("total_approved") is not None:
-                    total_approved = float(row["total_approved"])
+                total_approved = float(row[0]) if row and row[0] is not None else 0.0
                 cur.close()
             except Exception as e:
                 print(f"DB fetch awards (admin) error: {e}")
@@ -457,7 +220,6 @@ def dashboard():
             name=u["name"],
             role=u["role"],
             awards=awards,
-            ready_awards=ready_awards,   # ✅ new
             budget_initial=budget_initial,
             budget_remaining=budget_remaining,
         )
@@ -1489,12 +1251,11 @@ def award_delete(award_id):
 
     return redirect(url_for("dashboard"))
 
+
 @app.route("/awards/<int:award_id>/submit", methods=["POST"])
 def award_submit(award_id):
     """
-    PI clicks Submit on dashboard.
-    Flow:
-      Draft -> (AI review) -> AI Declined or AI Passed (or Pending if AI unknown)
+    PI clicks Submit on dashboard – mark award as 'Pending'.
     """
     u = session.get("user")
     if not u:
@@ -1507,54 +1268,22 @@ def award_submit(award_id):
         return make_response("DB connection failed", 500)
 
     try:
-        # 1) Load the award as a dict for AI
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur = conn.cursor()
         cur.execute(
-            "SELECT * FROM awards WHERE award_id=%s AND created_by_email=%s",
-            (award_id, u["email"]),
-        )
-        award = cur.fetchone()
-        cur.close()
-
-        if not award:
-            conn.close()
-            return "Award not found", 404
-
-        # 2) Run AI policy check
-        decision, reason = _run_ai_policy_check(award)
-        print("AI DECISION:", decision)   # DEBUG
-        print("AI REASON:", reason)       # DEBUG
-
-        if decision == "pass":
-            new_status = "AI Passed"
-        elif decision == "fail":
-            new_status = "AI Declined"
-        else:  # "unknown" or anything else
-            new_status = "Pending"
-
-        # 3) Update award status + store AI explanation
-        cur2 = conn.cursor()
-        cur2.execute(
-            """
-            UPDATE awards
-            SET status = %s,
-                ai_review_notes = %s
-            WHERE award_id = %s
-              AND created_by_email = %s
-            """,
-            (new_status, reason, award_id, u["email"]),
+            "UPDATE awards SET status = %s WHERE award_id = %s AND created_by_email = %s",
+            ("Pending", award_id, u["email"]),
         )
         conn.commit()
-        cur2.close()
-
+        cur.close()
     except Exception as e:
-        print(f"DB submit/AI check error: {e}")
+        print(f"DB submit award error: {e}")
         conn.rollback()
         return make_response("Submit failed", 500)
     finally:
         conn.close()
 
     return redirect(url_for("dashboard"))
+
 
 # ========== Admin actions: approve / decline ==========
 
@@ -1652,7 +1381,7 @@ def settings():
     u = session.get("user")
     if not u:
         return redirect(url_for("home"))
-    return render_template("settings.html")
+    return render_template("settings.html", user=u)
 
 
 @app.route("/profile")
@@ -1660,20 +1389,197 @@ def profile():
     u = session.get("user")
     if not u:
         return redirect(url_for("home"))
-    return render_template("profile.html")
+    awards = []
+    conn = get_db()
+    if conn is not None:
+        try:
+            cur = conn.cursor(dictionary=True)
+            cur.execute(
+                """
+                SELECT award_id, title, sponsor_type, amount, start_date, end_date, status, created_at
+                FROM awards
+                WHERE created_by_email=%s
+                ORDER BY created_at DESC
+                """,
+                (u["email"],),
+            )
+            awards = cur.fetchall()
+            cur.close()
+        except Exception as e:
+            print(f"DB fetch awards (profile) error: {e}")
+        finally:
+            conn.close()
+    stats = {
+        "total_awards": len(awards),
+        "active_awards": sum(1 for a in awards if (a.get("status") or "").lower() == "active"),
+        "latest_award": awards[0] if awards else None,
+    }
+    return render_template("profile.html", user=u, awards=awards, stats=stats)
+
 
 @app.route("/policies/university")
 def university_policies():
-    try:
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("SELECT * FROM policies WHERE policy_level = 'University'")
-        policies = cur.fetchall()
-        cur.close()
-        conn.close()
-        return render_template("policies_university.html", policies=policies)
-    except Exception as e:
-        return f"Database error: {e}"
+    policy_data = [
+        {
+            "level": "University",
+            "title": "University Research Budget Policy",
+            "sections": [
+                {
+                    "heading": "Personnel (Salary)",
+                    "rules": [
+                        "Salaries are only allowed for people who directly work on research tasks.",
+                        "Paying anyone who does not contribute to the research is not allowed.",
+                        "Administrative staff cannot be charged unless 100% dedicated to the project.",
+                        "Inflating effort or hours is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Equipment",
+                    "rules": [
+                        "Only research-related equipment can be purchased.",
+                        "Equipment under $5,000 is allowed.",
+                        "Equipment over $5,000 requires university approval.",
+                        "Personal-use electronics are not allowed.",
+                        "Buying equipment not needed for the project is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Travel",
+                    "rules": [
+                        "Travel must be directly related to the project.",
+                        "Only economy-class travel is allowed.",
+                        "Upgraded seats are not allowed.",
+                        "Personal or vacation travel is not allowed.",
+                        "Charging unrelated travel is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Materials & Supplies",
+                    "rules": [
+                        "Only supplies used for research activities are allowed.",
+                        "Office supplies are not allowed.",
+                        "Decorations are not allowed.",
+                        "Non-research purchases will be treated as violations.",
+                    ],
+                },
+                {
+                    "heading": "Other Direct Costs",
+                    "rules": [
+                        "Participant incentives are allowed.",
+                        "Publication fees are allowed.",
+                        "Research-related software is allowed.",
+                        "Membership fees are not allowed unless required.",
+                        "Charging unrelated services is a violation.",
+                    ],
+                },
+            ],
+        },
+        {
+            "level": "Sponsor",
+            "title": "Sponsor Research Budget Policy",
+            "sections": [
+                {
+                    "heading": "Personnel (Salary)",
+                    "rules": [
+                        "Only salaries listed in the sponsor-approved proposal are allowed.",
+                        "Adding new personnel without approval is not allowed.",
+                        "Admin/clerical salaries require written sponsor approval.",
+                        "Charging unapproved salary lines is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Equipment",
+                    "rules": [
+                        "Only equipment approved in the proposal is allowed.",
+                        "New or unplanned equipment purchases require sponsor approval.",
+                        "General-purpose equipment is not allowed.",
+                        "Buying items not listed in the proposal is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Travel",
+                    "rules": [
+                        "Only travel included in the proposal budget is allowed.",
+                        "Sponsor-required travel is allowed.",
+                        "Foreign travel requires approval.",
+                        "Non-research travel is not allowed.",
+                        "Charging personal travel is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Participant Support Costs (PSC)",
+                    "rules": [
+                        "PSC can only be used for participant stipends, travel, lodging, and meals.",
+                        "PSC cannot be used to pay PI or staff salaries.",
+                        "PSC cannot be rebudgeted without sponsor approval.",
+                        "Using PSC funds for equipment is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Subawards",
+                    "rules": [
+                        "Only approved subawards listed in the proposal are allowed.",
+                        "Informal payments without agreements are not allowed.",
+                        "Adding new partners requires sponsor approval.",
+                        "Paying unapproved subrecipients is a violation.",
+                    ],
+                },
+            ],
+        },
+        {
+            "level": "Federal",
+            "title": "Federal Policy",
+            "sections": [
+                {
+                    "heading": "Personnel (Salary)",
+                    "rules": [
+                        "Salaries must match the percentage of time worked on the project.",
+                        "Paying someone more than their normal rate is not allowed.",
+                        "Charging unrelated work to the project is a violation.",
+                        "Administrative salaries are only allowed in special circumstances.",
+                    ],
+                },
+                {
+                    "heading": "Equipment",
+                    "rules": [
+                        "Equipment must be necessary for the project.",
+                        "Federal procurement rules must be followed.",
+                        "Splitting purchases to avoid bidding rules is not allowed.",
+                        "Buying equipment for future projects is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Travel",
+                    "rules": [
+                        "Only economy travel is allowed.",
+                        "Travel must support project goals.",
+                        "Foreign travel must follow the Fly America Act.",
+                        "Business/first-class travel is not allowed.",
+                        "Charging personal travel is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Subawards & Procurement",
+                    "rules": [
+                        "Vendors must be selected competitively when required.",
+                        "Sole-source purchases must be documented.",
+                        "Personal relationships cannot influence vendor selection.",
+                        "Paying individuals without contracts is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Documentation",
+                    "rules": [
+                        "Receipts are required for all expenses.",
+                        "Justifications must clearly show project benefit.",
+                        "Missing documentation is not allowed.",
+                        "Vague explanations are considered violations.",
+                    ],
+                },
+            ],
+        },
+    ]
+    return render_template("policies_university.html", policies=policy_data)
 
 
 @app.route("/logout")
@@ -1684,6 +1590,4 @@ def logout():
 
 if __name__ == "__main__":
     init_db_if_needed()
-    port = int(os.environ.get("PORT", 8000))
-    app.run(host="0.0.0.0", port=port, debug=True)
-
+    app.run(debug=True, port=8000)

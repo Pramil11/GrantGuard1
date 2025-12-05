@@ -11,7 +11,6 @@
 </head>
 <body>
   <div class="app-shell">
-    <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-header">
         <img src="{{ url_for('static', filename='assets/GrandGuard.png') }}" alt="GrantGuard logo" class="logo-img" />
@@ -27,10 +26,73 @@
         <a href="/logout">Log out</a>
       </nav>
     </aside>
-      <section class="card" style="margin-top:24px;">
-        <p>View and update your personal information.</p>
+    <main class="content profile-page">
+      <section class="profile-header card">
+        <div class="avatar">{{ user.name[0] if user.name else user.email[0] }}</div>
+        <div>
+          <h2>{{ user.name }}</h2>
+          <p>{{ user.email }} · {{ user.role }}</p>
+        </div>
+      </section>
+
+      <section class="profile-stats">
+        <div class="card stat-card">
+          <span>Total Awards</span>
+          <strong>{{ stats.total_awards }}</strong>
+        </div>
+        <div class="card stat-card">
+          <span>Active Awards</span>
+          <strong>{{ stats.active_awards }}</strong>
+        </div>
+        <div class="card stat-card">
+          <span>Latest Submission</span>
+          {% if stats.latest_award %}
+            <strong>{{ stats.latest_award.title }}</strong>
+            <small>{{ stats.latest_award.created_at.strftime("%b %d, %Y") }}</small>
+          {% else %}
+            <strong>—</strong>
+            <small>No submissions yet</small>
+          {% endif %}
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-header">
+          <h3>Grant History</h3>
+          <a href="/awards/new">Create new grant</a>
+        </div>
+        {% if awards %}
+        <div class="history-table-wrapper">
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Sponsor Type</th>
+                <th>Amount</th>
+                <th>Timeline</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for award in awards %}
+              <tr>
+                <td>{{ award.title }}</td>
+                <td>{{ award.sponsor_type or '—' }}</td>
+                <td>${{ '%.2f' | format(award.amount) }}</td>
+                <td>{{ award.start_date }} → {{ award.end_date }}</td>
+                <td>{{ award.status }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+          <p class="text-muted">No awards yet. <a href="/awards/new">Start a submission</a>.</p>
+        {% endif %}
       </section>
     </main>
-   <script src="{{ url_for('static', filename='theme.js') }}"></script> 
   </div>
+  <script src="{{ url_for('static', filename='theme.js') }}"></script>
+</body>
 </html>
+

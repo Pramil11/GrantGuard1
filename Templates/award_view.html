@@ -57,19 +57,6 @@
         <p><strong>Collaborators:</strong> {{ award.collaborators or 'N/A' }}</p>
       </div>
 
-      <p><strong>Status:</strong> {{ award.status }}</p>
-
-        {% if award.ai_review_notes %}
-        <div class="card" style="margin-top:16px;">
-            <h3>AI Policy Check</h3>
-            <p style="font-size:0.9rem; color:#555; margin-bottom:6px;">
-            Below is the AI explanation based on university, sponsor, and federal policies:
-            </p>
-            <pre style="white-space:pre-wrap; font-family:inherit; font-size:0.9rem; background:#f7f7f7; padding:10px 12px; border-radius:8px; border:1px solid #e0e0e0;">
-        {{ award.ai_review_notes }}
-            </pre>
-        </div>
-        {% endif %}
       <!-- =======================
            Personnel section
       ======================== -->
@@ -221,6 +208,8 @@
     Download Excel
   </a>
 </div>
+
+
     </main>
   </div>
   <script src="{{ url_for('static', filename='theme.js') }}"></script>
