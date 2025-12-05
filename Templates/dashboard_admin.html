@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Admin Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <img src="{{ url_for('static', filename='assets/GrandGuard.png') }}"
+             alt="GrantGuard logo" class="logo-img" />
+        <span class="brand-text">GrantGuard (Admin)</span>
+      </div>
+      <nav class="menu">
+        <a class="active" href="/dashboard">Dashboard</a>
+        <!-- No Generate Grants for admin -->
+        <a href="/policies/university">Policies</a>
+        <a href="/subawards">Subawards</a>
+        <a href="/settings">Settings</a>
+        <a href="/profile">Profile</a>
+        <a href="/logout">Log out</a>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <h2>Welcome, {{ name }}!</h2>
+
+      <section class="card" style="margin-top:24px;">
+        <h3>Admin Budget Overview</h3>
+        <p><strong>Initial Budget:</strong> ${{ "%.2f"|format(budget_initial) }}</p>
+        <p><strong>Remaining Budget:</strong> ${{ "%.2f"|format(budget_remaining) }}</p>
+      </section>
+
+      <section class="card" style="margin-top:24px;">
+        <h3>Grants after AI Review</h3>
+        <p style="font-size:0.9rem; color:#555; margin-bottom:10px;">
+          Admin can approve or decline only grants that passed AI checks
+          (status = <strong>AI pass</strong>). Other statuses are shown for record.
+        </p>
+
+        {% if awards %}
+          <table class="budget-table">
+            <thead>
+              <tr>
+                <th>Grant Name</th>
+                <th>PI Email</th>
+                <th>Funding Agency</th>
+                <th>Amount</th>
+                <th>Start Date</th>
+                <th>End Date</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for a in awards %}
+              <tr>
+                <td>{{ a.title }}</td>
+                <td>{{ a.created_by_email }}</td>
+                <td>{{ a.sponsor_type or "N/A" }}</td>
+                <td>
+                  {% if a.amount is not none %}
+                    ${{ "%.2f"|format(a.amount) }}
+                  {% else %}
+                    N/A
+                  {% endif %}
+                </td>
+                <td>{{ a.start_date }}</td>
+                <td>{{ a.end_date }}</td>
+                <td>{{ a.status }}</td>
+                <td>
+                    <a class="btn-small-info"
+                        href="{{ url_for('award_view', award_id=a.award_id) }}">View</a>
+
+                    {# Show Approve/Decline only for grants that passed AI #}
+                    {% if a.status and a.status|lower == 'ai passed' %}
+                        <form method="post"
+                            action="{{ url_for('award_approve', award_id=a.award_id) }}"
+                            style="display:inline;">
+                        <button type="submit" class="btn-small-success">Approve</button>
+                        </form>
+
+                        <form method="post"
+                            action="{{ url_for('award_decline', award_id=a.award_id) }}"
+                            style="display:inline;">
+                        <button type="submit" class="btn-small-danger">Decline</button>
+                        </form>
+                    {% endif %}
+                    </td>
+
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p>No awards yet.</p>
+        {% endif %}
+      </section>
+    </main>
+  </div>
+  <script src="{{ url_for('static', filename='theme.js') }}"></script>
+</body>
+</html>

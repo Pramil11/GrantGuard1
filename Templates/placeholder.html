@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <nav style="display:flex; gap:12px; margin-bottom:16px;">
+    <a href="/dashboard">Dashboard</a>
+    <a href="/awards/new">Generate Grants</a>
+    <a href="/subawards">Subawards</a>
+    <a href="/settings">Settings</a>
+    <a href="/profile">Profile</a>
+    <a href="/logout">Log out</a>
+  </nav>
+
+  <h2>{{ title }}</h2>
+  <p>This section is under construction. Backend route is wired.</p>
+  <script src="{{ url_for('static', filename='theme.js') }}"></script>
+</body>
+</html>
+

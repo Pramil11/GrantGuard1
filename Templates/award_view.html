@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>View Grant - {{ award.title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <img src="{{ url_for('static', filename='assets/GrandGuard.png') }}"
+             alt="GrantGuard logo" class="logo-img" />
+        <span class="brand-text">GrantGuard</span>
+      </div>
+      <nav class="menu">
+        <a href="{{ url_for('dashboard') }}">Dashboard</a>
+        <a class="active" href="{{ url_for('award_view', award_id=award.award_id) }}">View Grant</a>
+        <a href="{{ url_for('awards_new') }}">Generate Grants</a>
+        <a href="{{ url_for('university_policies') }}">Policies</a>
+        <a href="{{ url_for('subawards') }}">Subawards</a>
+        <a href="{{ url_for('settings') }}">Settings</a>
+        <a href="{{ url_for('profile') }}">Profile</a>
+        <a href="{{ url_for('logout') }}">Log out</a>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <!-- =======================
+           Grant overview
+      ======================== -->
+      <h2>{{ award.title }}</h2>
+      <div class="card">
+        <p><strong>Funding Agency:</strong> {{ award.sponsor_type or 'N/A' }}</p>
+        <p><strong>Amount:</strong> ${{ '%.2f'|format(award.amount or 0) }}</p>
+
+        {% if award.start_date and award.end_date %}
+          <p>
+            <strong>Period:</strong>
+            {{ award.start_date }} → {{ award.end_date }}
+            {% if duration_years %}
+              ({{ duration_years }} year{{ 's' if duration_years != 1 else '' }})
+            {% endif %}
+          </p>
+        {% else %}
+          <p><strong>Start Date:</strong> {{ award.start_date or 'N/A' }}</p>
+          <p><strong>End Date:</strong> {{ award.end_date or 'N/A' }}</p>
+        {% endif %}
+
+        <p><strong>Status:</strong> {{ award.status or 'Pending' }}</p>
+        <p><strong>Department:</strong> {{ award.department or 'N/A' }}</p>
+        <p><strong>College:</strong> {{ award.college or 'N/A' }}</p>
+        <p><strong>Contact Email:</strong> {{ award.contact_email or 'N/A' }}</p>
+        <p><strong>Abstract:</strong><br>
+          {{ award.abstract or 'No abstract provided.' }}</p>
+        <p><strong>Keywords:</strong> {{ award.keywords or 'N/A' }}</p>
+        <p><strong>Collaborators:</strong> {{ award.collaborators or 'N/A' }}</p>
+      </div>
+
+      <p><strong>Status:</strong> {{ award.status }}</p>
+
+        {% if award.ai_review_notes %}
+        <div class="card" style="margin-top:16px;">
+            <h3>AI Policy Check</h3>
+            <p style="font-size:0.9rem; color:#555; margin-bottom:6px;">
+            Below is the AI explanation based on university, sponsor, and federal policies:
+            </p>
+            <pre style="white-space:pre-wrap; font-family:inherit; font-size:0.9rem; background:#f7f7f7; padding:10px 12px; border-radius:8px; border:1px solid #e0e0e0;">
+        {{ award.ai_review_notes }}
+            </pre>
+        </div>
+        {% endif %}
+      <!-- =======================
+           Personnel section
+      ======================== -->
+      <section class="card" style="margin-top:24px;">
+        <h3>Personnel</h3>
+        {% if personnel and personnel|length > 0 %}
+          <table class="budget-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Position</th>
+                <th>Hours for year(s)</th>
+                <th>Same Each Year?</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for p in personnel %}
+              <tr>
+                <td>{{ p.name or 'N/A' }}</td>
+                <td>{{ p.position or 'N/A' }}</td>
+                <td>
+                  {% if p.hours %}
+                    {% for h in p.hours %}
+                      {{ h.year }}: {{ h.hours }} hrs{% if not loop.last %}, {% endif %}
+                    {% endfor %}
+                  {% else %}
+                    N/A
+                  {% endif %}
+                </td>
+                <td>
+                  {% if p.same_each_year is none %}
+                    N/A
+                  {% else %}
+                    {{ 'Yes' if p.same_each_year else 'No' }}
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p>No personnel details recorded.</p>
+        {% endif %}
+      </section>
+
+      <!-- =======================
+           Travel section
+      ======================== -->
+      <section class="card" style="margin-top:24px;">
+        <h3>Travel Information</h3>
+        {% if (domestic_travel and domestic_travel|length > 0)
+              or (international_travel and international_travel|length > 0) %}
+          <table class="budget-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Year</th>
+                <th>Name</th>
+                <th>Description</th>
+                <th>Departure</th>
+                <th>Arrival</th>
+                <th>Flight Cost</th>
+                <th>Taxi/Day</th>
+                <th>Food &amp; Lodge/Day</th>
+                <th>Days</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for t in domestic_travel %}
+              <tr>
+                <td>Domestic</td>
+                <td>{{ t.year or 'N/A' }}</td>
+                <td>{{ t.name or 'N/A' }}</td>
+                <td>{{ t.description or 'N/A' }}</td>
+                <td>{{ t.depart or 'N/A' }}</td>
+                <td>{{ t.arrive or 'N/A' }}</td>
+                <td>${{ '%.2f'|format(t.flight or 0) }}</td>
+                <td>${{ '%.2f'|format(t.taxi_per_day or 0) }}</td>
+                <td>${{ '%.2f'|format(t.food_per_day or 0) }}</td>
+                <td>{{ t.days or 'N/A' }}</td>
+              </tr>
+            {% endfor %}
+            {% for t in international_travel %}
+              <tr>
+                <td>International</td>
+                <td>{{ t.year or 'N/A' }}</td>
+                <td>{{ t.name or 'N/A' }}</td>
+                <td>{{ t.description or 'N/A' }}</td>
+                <td>{{ t.depart or 'N/A' }}</td>
+                <td>{{ t.arrive or 'N/A' }}</td>
+                <td>${{ '%.2f'|format(t.flight or 0) }}</td>
+                <td>${{ '%.2f'|format(t.taxi_per_day or 0) }}</td>
+                <td>${{ '%.2f'|format(t.food_per_day or 0) }}</td>
+                <td>{{ t.days or 'N/A' }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p>No travel details recorded.</p>
+        {% endif %}
+      </section>
+
+      <!-- =======================
+           Materials / Supplies
+      ======================== -->
+      <section class="card" style="margin-top:24px;">
+        <h3>Materials and Supplies</h3>
+        {% if materials and materials|length > 0 %}
+          <table class="budget-table">
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>Year</th>
+                <th>Description</th>
+                <th>Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for m in materials %}
+              <tr>
+                <td>{{ m.category or 'N/A' }}</td>
+                <td>{{ m.year or 'N/A' }}</td>
+                <td>{{ m.description or 'N/A' }}</td>
+                <td>${{ '%.2f'|format(m.cost or 0) }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p>No materials/supplies recorded.</p>
+        {% endif %}
+      </section>
+
+      <!-- =======================
+           Bottom buttons
+      ======================== -->
+<div style="margin-top:16px;">
+  <a href="{{ url_for('award_edit', award_id=award.award_id) }}" class="btn">
+    Edit
+  </a>
+  <a href="{{ url_for('dashboard') }}" class="btn" style="margin-left:8px;">
+    Back to Dashboard
+  </a>
+  <a href="{{ url_for('download_award_pdf', award_id=award.award_id) }}" class="btn btn-secondary" style="margin-left:8px;">
+    Download PDF
+  </a>
+  <a href="{{ url_for('download_award_excel', award_id=award.award_id) }}" class="btn btn-secondary" style="margin-left:8px;">
+    Download Excel
+  </a>
+</div>
+    </main>
+  </div>
+  <script src="{{ url_for('static', filename='theme.js') }}"></script>
+</body>
+</html>

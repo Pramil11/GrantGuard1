@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GrandGuard - Login</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="theme-waves">
+  <div class="container">
+    <!-- Left Side: Login -->
+    <div class="login-section">
+      <div class="login-content">
+        <div class="brand-row">
+          <img src="{{ url_for('static', filename='assets/GrandGuard.png') }}" alt="GrantGuard logo" class="logo-img" />
+                <span class="sr-only">GrantGuard</span>
+        </div>
+        <h2>Login to Your Account</h2>
+
+        <form id="loginForm">
+          <input type="email" id="loginEmail" placeholder="Email" required />
+          <input type="password" id="loginPassword" placeholder="Password" required />
+          <button type="submit" class="btn">Sign In</button>
+          <p class="switch-text">
+            Don't have an account?
+            <a href="#" id="openSignup">Sign Up</a>
+          </p>
+        </form>
+      </div>
+    </div>
+
+    <!-- Signup -->
+    <div class="signup-panel">
+      <div class="panel-content">
+        <h2>New Here?</h2>
+        <p>Sign up and discover a great amount of new opportunities!</p>
+        <button id="showSignup" class="panel-btn">Sign Up</button>
+        <p class="switch-text signup-bottom">
+         Already have an account?
+        <a href="#" id="backToLoginLink">Sign in</a>
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Signup -->
+  <div class="signup-overlay" id="signupOverlay">
+    <div class="signup-box">
+      <!-- Close (X) -->
+        <button type="button"
+                class="signup-close"
+                id="dismissSignup"
+                aria-label="Close sign up">
+          &times;
+        </button>
+      <h2>Create Your Account</h2>
+      <form id="signupForm">
+        <div class="name-fields">
+          <input type="text" id="firstName" placeholder="First Name" required />
+          <input type="text" id="lastName" placeholder="Last Name" required />
+        </div>
+        <input type="email" id="signupEmail" placeholder="Email" required />
+        <input type="password" id="signupPassword" placeholder="Password" required />
+        <button type="submit" class="btn">Sign Up</button>
+        <p class="switch-text">
+          Already have an account? <a href="#" id="closeSignup">Login</a>
+        </p>
+      </form>
+    </div>
+  </div> 
+
+  <footer>
+    <p>© 2025 GrandGuard. All Rights Reserved.</p>
+  </footer>
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+  <script src="{{ url_for('static', filename='theme.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Subawards - GrandGuard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <img src="{{ url_for('static', filename='assets/GrandGuard.png') }}" alt="GrantGuard logo" class="logo-img" />
+        <span class="brand-text">GrantGuard</span>
+      </div>
+      <nav class="menu">
+        <a href="/dashboard">Dashboard</a>
+        <a href="/awards/new">Generate Grants</a>
+        <a href="/policies/university">Policies</a>
+        <a class="active" href="/subawards">Subawards</a>
+        <a href="/settings">Settings</a>
+        <a href="/profile">Profile</a>
+        <a href="/logout">Log out</a>
+      </nav>
+    </aside>
+    <main class="content">
+      <h2>Subawards</h2>
+      <div class="card">
+        <p>Manage subaward agreements, collaborators, and compliance tracking here.</p>
+      </div>
+    </main>
+  </div>
+  <script src="{{ url_for('static', filename='theme.js') }}"></script>
+</body>
+</html>
+

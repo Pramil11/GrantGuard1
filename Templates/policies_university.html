@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>University Policies - GrandGuard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <img src="{{ url_for('static', filename='assets/GrandGuard.png') }}" alt="GrantGuard logo" class="logo-img" />
+        <span class="brand-text">GrantGuard</span>
+      </div>
+      <nav class="menu">
+        <a href="/dashboard">Dashboard</a>
+        <a href="/awards/new">Generate Grants</a>
+        <a class="active" href="/policies/university">Policies</a>
+        <a href="/subawards">Subawards</a>
+        <a href="/settings">Settings</a>
+        <a href="/profile">Profile</a>
+        <a href="/logout">Log out</a>
+      </nav>
+    </aside>
+    <main class="content">
+      <h2>University Policies</h2>
+      <p>These are the official university-level rules for spending and compliance.</p>
+
+      {% if policies %}
+        <div class="policy-list">
+          {% for policy in policies %}
+            <div class="policy-card">
+              <h3>{{ policy.source_name }}</h3>
+              <p>{{ policy.policy_text }}</p>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p>No university policies found in the database.</p>
+      {% endif %}
+    </main>
+  </div>
+</body>
+</html>
