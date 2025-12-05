@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>New Subaward - GrantGuard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <img src="{{ url_for('static', filename='assets/GrandGuard.png') }}" alt="GrantGuard logo" class="logo-img" />
+        <span class="brand-text">GrantGuard</span>
+      </div>
+      <nav class="menu">
+        <a href="/dashboard">Dashboard</a>
+        <a href="/awards/new">Generate Grants</a>
+        <a href="/policies/university">Policies</a>
+        <a class="active" href="/subawards">Subawards</a>
+        <a href="/settings">Settings</a>
+        <a href="/profile">Profile</a>
+        <a href="/logout">Log out</a>
+      </nav>
+    </aside>
+    <main class="content">
+      <header style="margin-bottom: 24px;">
+        <a class="back-link" href="{{ url_for('subawards') }}">← Back to Subawards</a>
+        <h1 style="margin: 8px 0 0 0; font-size: 1.75em; font-weight: 700; color: var(--gg-text-main);">Create New Subaward</h1>
+        <p style="margin: 8px 0 0 0; font-size: 0.875em; color: #6b7280;">Add a subrecipient to an approved award</p>
+      </header>
+
+      <form method="POST" action="{{ url_for('subaward_create') }}" class="card" style="display: flex; flex-direction: column; gap: 16px;">
+        <div>
+          <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--gg-text-main);">Parent Award *</label>
+          <select name="award_id" required style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: var(--gg-bg-card); color: var(--gg-text-main); font-size: 0.875em;">
+            <option value="">Select Award</option>
+            {% for award in awards %}
+            <option value="{{ award.award_id }}" {% if selected_award and selected_award.award_id == award.award_id %}selected{% endif %}>
+              {{ award.title }} - ${{ "{:,.2f}".format(award.amount or 0) }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--gg-text-main);">Subrecipient Name *</label>
+          <input type="text" name="subrecipient_name" required placeholder="Organization or Institution Name" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: var(--gg-bg-card); color: var(--gg-text-main); font-size: 0.875em;">
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div>
+            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--gg-text-main);">Contact Person</label>
+            <input type="text" name="subrecipient_contact" placeholder="Contact Name" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: var(--gg-bg-card); color: var(--gg-text-main); font-size: 0.875em;">
+          </div>
+          <div>
+            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--gg-text-main);">Email</label>
+            <input type="email" name="subrecipient_email" placeholder="contact@example.com" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: var(--gg-bg-card); color: var(--gg-text-main); font-size: 0.875em;">
+          </div>
+        </div>
+
+        <div>
+          <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--gg-text-main);">Subaward Amount (USD) *</label>
+          <input type="number" name="amount" step="0.01" min="0.01" required placeholder="0.00" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: var(--gg-bg-card); color: var(--gg-text-main); font-size: 0.875em;">
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div>
+            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--gg-text-main);">Start Date</label>
+            <input type="date" name="start_date" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: var(--gg-bg-card); color: var(--gg-text-main); font-size: 0.875em;">
+          </div>
+          <div>
+            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--gg-text-main);">End Date</label>
+            <input type="date" name="end_date" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: var(--gg-bg-card); color: var(--gg-text-main); font-size: 0.875em;">
+          </div>
+        </div>
+
+        <div>
+          <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--gg-text-main);">Description</label>
+          <textarea name="description" rows="4" placeholder="Describe the subaward scope and objectives..." style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: var(--gg-bg-card); color: var(--gg-text-main); font-size: 0.875em; font-family: 'Poppins', sans-serif;"></textarea>
+        </div>
+
+        <div style="display: flex; gap: 12px;">
+          <button type="submit" class="btn" style="flex: 1;">Create Subaward</button>
+          <a href="{{ url_for('subawards') }}" class="btn" style="flex: 1; text-align: center; background: #6b7280; text-decoration: none; display: flex; align-items: center; justify-content: center;">Cancel</a>
+        </div>
+      </form>
+    </main>
+  </div>
+  <script src="{{ url_for('static', filename='theme.js') }}"></script>
+</body>
+</html>

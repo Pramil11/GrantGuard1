@@ -64,13 +64,25 @@ body {
 .brand-row {
   display: flex;
   align-items: center;
-  margin-bottom: 25px;
+  margin-bottom: 40px;
+  gap: 16px;
 }
 
 .logo-img {
-  height: 50px;
+  height: 90px;
   width: auto;
-  margin-right: 10px;
+  object-fit: contain;
+}
+
+.brand-name {
+  font-size: 42px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #0b84f3, #00bfa5);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.5px;
+  font-family: "Poppins", sans-serif;
 }
 
 .logo {
@@ -2172,4 +2184,9 @@ body.theme-dark input[type="checkbox"] {
 body.theme-dark select option {
   background: #1e293b;
   color: var(--gg-text-main);
+}
+
+/* Subawards page dark mode */
+body.theme-dark .status-badge {
+  /* Status badges already have dark mode styles defined above */
 }
