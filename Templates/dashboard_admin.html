@@ -81,6 +81,17 @@
                       <button type="submit" class="btn-small-danger">Decline</button>
                     </form>
                   {% endif %}
+                  
+                  {% if a.status == 'Approved' %}
+                    <a class="btn-small-success"
+                       href="{{ url_for('budget_status', award_id=a.award_id) }}">
+                      Budget
+                    </a>
+                    <a class="btn-small-info"
+                       href="{{ url_for('transactions_list', award_id=a.award_id) }}">
+                      Transactions
+                    </a>
+                  {% endif %}
                 </td>
               </tr>
             {% endfor %}

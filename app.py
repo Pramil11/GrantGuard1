@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, session, url_for, make_response, send_file
 import psycopg2
+from psycopg2 import errors as psycopg2_errors
 from psycopg2.extras import RealDictCursor
 import os
 import json
@@ -14,35 +15,40 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
-from openai import OpenAI
+
+from dotenv import load_dotenv
+load_dotenv()
 
 app = Flask(__name__, template_folder='Templates')
-app.secret_key = "change-this-to-any-random-secret"
+app.secret_key = "change-this-to-any-random-secret"  # needed for session
 
+# ---- Admin global budget (1 million) ----
 ADMIN_INITIAL_BUDGET = 1_000_000
 
-# 1) DB + OpenAI config
-# On Render you will set DATABASE_URL to the *internal* Render Postgres URL.
-DATABASE_URL = os.getenv("DATABASE_URL")
+# ---- DB config (use environment variables in deployment) ----
+DATABASE_URL = os.getenv("DATABASE_URL")  # Render provides this
 
-# Local fallback (only used when DATABASE_URL is NOT set, e.g. on your laptop)
-if not DATABASE_URL:
-    DB_HOST = os.getenv("PGHOST", "localhost")
-    DB_USER = os.getenv("PGUSER", "postgres")
-    DB_PASS = os.getenv("PGPASSWORD", "")
-    DB_NAME = os.getenv("PGDATABASE", "grandguard_db")
+if DATABASE_URL:
+    # Parse DATABASE_URL: postgresql://user:pass@host:port/dbname
+    import urllib.parse as urlparse
+    urlparse.uses_netloc.append("postgresql")
+    url = urlparse.urlparse(DATABASE_URL)
+    DB_HOST = url.hostname
+    DB_USER = url.username
+    DB_PASS = url.password
+    DB_NAME = url.path[1:]  # Remove leading /
+    DB_PORT = url.port or 5432
+else:
+    # Local / fallback creds
+    DB_HOST = os.getenv("PGHOST", "dpg-d426gaje5dus73bfka20-a.oregon-postgres.render.com")
+    DB_USER = os.getenv("PGUSER", "admin_user")
+    DB_PASS = os.getenv("PGPASSWORD", "NXUMDSA8WjBCkn5xBKFkxQGaKGaxNie8")
+    DB_NAME = os.getenv("PGDATABASE", "grandguard")
     DB_PORT = int(os.getenv("PGPORT", "5432"))
 
-# OpenAI config (used by AI checks)
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if OPENAI_API_KEY:
-    client = OpenAI(api_key=OPENAI_API_KEY)
-else:
-    client = None
-    print("WARNING: OPENAI_API_KEY is not set. AI checks will be skipped.")
 
-# 2) get_db() ✅ uses DATABASE_URL when present
 def get_db():
+    """Create a connection per request. No app-start crash if creds are wrong."""
     try:
         if DATABASE_URL:
             conn = psycopg2.connect(DATABASE_URL)
@@ -53,129 +59,13 @@ def get_db():
                 password=DB_PASS,
                 database=DB_NAME,
                 port=DB_PORT,
-            )
+        )
         return conn
     except Exception as e:
         print(f"DB connect error: {e}")
         return None
 
-def run_award_ai_check(award_row: dict) -> dict:
-    """
-    Call OpenAI to check whether this award complies with
-    university, sponsor, and federal policies.
 
-    Returns a dict like:
-    {"decision": "approve" or "decline" or "skip", "reason": "..."}
-    """
-    # If no API key / client, just skip
-    if client is None:
-        return {
-            "decision": "skip",
-            "reason": "AI check skipped (no API key configured)."
-        }
-
-    # Join all three policies into one text block
-    policies_text = f"""
-UNIVERSITY POLICY
------------------
-{POLICIES.get("university", "")}
-
-SPONSOR POLICY
---------------
-{POLICIES.get("sponsor", "")}
-
-FEDERAL POLICY
---------------
-{POLICIES.get("federal", "")}
-"""
-
-    # Short summary of the grant for the model
-    grant_summary = f"""
-Title: {award_row.get('title')}
-Sponsor type: {award_row.get('sponsor_type')}
-Amount: {award_row.get('amount')}
-Department: {award_row.get('department')}
-College: {award_row.get('college')}
-Contact email: {award_row.get('contact_email')}
-Abstract:
-{award_row.get('abstract')}
-
-Keywords: {award_row.get('keywords')}
-Collaborators: {award_row.get('collaborators')}
-"""
-
-    # 🔹 THIS IS THE PROMPT YOU ASKED ABOUT
-    prompt = f"""
-You are an AI compliance assistant for university research grants.
-
-Your job is to decide if the grant below clearly follows ALL THREE policy documents
-(University, Sponsor, and Federal).
-
-Be very strict:
-
-- Only return "approve" if the grant is clearly compliant AND you see no possible conflicts.
-- If there is missing information, uncertainty, or any possible conflict, you MUST return "decline".
-
-Respond strictly in valid JSON:
-{{
-  "decision": "approve" or "decline",
-  "reason": "short explanation of why you approved or declined, referencing specific policies if possible"
-}}
-
-=== POLICIES ===
-{policies_text}
-
-=== GRANT PROPOSAL ===
-{grant_summary}
-"""
-
-    try:
-        # Call OpenAI (chat completions style)
-        resp = client.chat.completions.create(
-            model="gpt-4.1-mini",   # or any other model you prefer
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0,
-        )
-
-        raw_content = resp.choices[0].message.content.strip()
-
-        # Try to parse JSON from the model output
-        try:
-            data = json.loads(raw_content)
-        except json.JSONDecodeError:
-            # If it wrapped JSON in text, try to extract the JSON part
-            start = raw_content.find("{")
-            end = raw_content.rfind("}")
-            if start != -1 and end != -1:
-                data = json.loads(raw_content[start:end+1])
-            else:
-                # Fall back: treat as decline
-                return {
-                    "decision": "decline",
-                    "reason": f"Model returned non-JSON response: {raw_content}"
-                }
-
-        decision = data.get("decision", "").lower()
-        reason = data.get("reason", "")
-
-        if decision not in ("approve", "decline"):
-            # Safety fallback
-            return {
-                "decision": "decline",
-                "reason": f"Invalid decision from model: {decision!r}. Raw: {raw_content}"
-            }
-
-        return {
-            "decision": decision,
-            "reason": reason or "No reason provided by model."
-        }
-
-    except Exception as e:
-        # If API call fails, treat as decline so nothing unsafe is auto-approved
-        return {
-            "decision": "decline",
-            "reason": f"AI check failed with error: {e}"
-        }
 def init_db_if_needed():
     """Initialize database schema if tables don't exist."""
     conn = get_db()
@@ -189,129 +79,50 @@ def init_db_if_needed():
         if os.path.exists(schema_file):
             with open(schema_file, 'r') as f:
                 schema_sql = f.read()
-            cur.execute(schema_sql)
-            conn.commit()
-            print("Database schema initialized")
+            # Execute the entire schema file
+            # PostgreSQL can handle multiple statements if we use execute with the full SQL
+            try:
+                # Remove comments and clean up
+                lines = schema_sql.split('\n')
+                cleaned_lines = []
+                for line in lines:
+                    # Skip comment lines and empty lines
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith('--'):
+                        cleaned_lines.append(line)
+                cleaned_sql = '\n'.join(cleaned_lines)
+                
+                # Execute the cleaned SQL
+                cur.execute(cleaned_sql)
+                conn.commit()
+                print("✓ Database schema initialized")
+            except Exception as schema_error:
+                # If full execution fails, try executing statement by statement
+                print(f"Full schema execution failed, trying statement by statement: {schema_error}")
+                statements = schema_sql.split(';')
+                for statement in statements:
+                    statement = statement.strip()
+                    if statement and not statement.startswith('--') and not statement.upper().startswith('SELECT'):
+                        try:
+                            cur.execute(statement)
+                        except Exception as stmt_error:
+                            # Some statements might fail if tables already exist, that's okay
+                            error_msg = str(stmt_error)
+                            if 'already exists' not in error_msg.lower() and 'duplicate' not in error_msg.lower():
+                                print(f"Statement execution note: {stmt_error}")
+                conn.commit()
+                print("✓ Database schema initialized (statement by statement)")
         else:
             print(f"Warning: Schema file {schema_file} not found")
         cur.close()
     except Exception as e:
         print(f"DB init error: {e}")
+        import traceback
+        traceback.print_exc()
         conn.rollback()
     finally:
         conn.close()
 
-# -------- Policy files --------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-POLICY_DIR = os.path.join(BASE_DIR, "policies")
-
-
-def _read_policy(filename: str) -> str:
-    """Read a policy text file from the policies/ folder."""
-    path = os.path.join(POLICY_DIR, filename)
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        # For now just return empty text if missing
-        return ""
-
-POLICIES = {
-    "university": _read_policy("university_policy.txt"),
-    "sponsor": _read_policy("sponsor_policy.txt"),
-    "federal": _read_policy("federal_policy.txt"),
-}
-def _build_award_summary(award: dict) -> str:
-    """Turn an award row into a compact text summary for the AI."""
-    parts = [
-        f"Title: {award.get('title', '')}",
-        f"Abstract: {award.get('abstract', '')}",
-        f"Sponsor type: {award.get('sponsor_type', '')}",
-        f"Department: {award.get('department', '')}",
-        f"College: {award.get('college', '')}",
-        f"Total amount: {award.get('amount', '')}",
-        f"Start date: {award.get('start_date', '')}",
-        f"End date: {award.get('end_date', '')}",
-        f"Keywords: {award.get('keywords', '')}",
-        f"Collaborators: {award.get('collaborators', '')}",
-    ]
-    return "\n".join(parts)
-
-
-def _run_ai_policy_check(award: dict):
-    """
-    Call OpenAI to check if the grant follows
-    university + sponsor + federal policies.
-
-    Returns:
-      ("pass" | "fail" | "unknown", reason_text)
-    """
-    if client is None:
-        msg = "AI check skipped (no OPENAI_API_KEY configured)."
-        print(msg)
-        return "unknown", msg
-
-    uni_policy = POLICIES.get("university", "")
-    sponsor_policy = POLICIES.get("sponsor", "")
-    federal_policy = POLICIES.get("federal", "")
-
-    grant_text = _build_award_summary(award)
-
-    prompt = f"""
-You are an assistant checking if a research grant follows three policy sets.
-
-UNIVERSITY POLICY:
-{uni_policy}
-
-SPONSOR POLICY:
-{sponsor_policy}
-
-FEDERAL POLICY:
-{federal_policy}
-
-GRANT APPLICATION TO REVIEW:
-{grant_text}
-
-TASK:
-1. Decide if the grant clearly follows all three policy sets.
-2. Reply in this exact format:
-
-DECISION: APPROVE or REJECT
-REASON: short explanation (2-4 sentences)
-"""
-
-    try:
-        resp = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a strict compliance checker for research grant policies."
-                },
-                {
-                    "role": "user",
-                    "content": prompt.strip()
-                },
-            ],
-            temperature=0,
-        )
-        content = resp.choices[0].message.content or ""
-        print("AI raw response:\n", content)          # DEBUG: show full reply
-    except Exception as e:
-        msg = f"AI error: {e}"
-        print(msg)                                     # DEBUG: show error
-        return "unknown", msg
-
-    first_line = content.splitlines()[0].strip().upper()
-    print("AI first line for decision:", first_line)   # DEBUG: show parsed line
-
-    if "REJECT" in first_line or "DECLINE" in first_line:
-        return "fail", content
-    elif "APPROVE" in first_line:
-        return "pass", content
-    else:
-        # Could not confidently parse decision
-        return "unknown", content
 
 @app.route("/")
 def home():
@@ -401,54 +212,33 @@ def dashboard():
     - If Admin: show all awards + budget info (Admin dashboard).
     """
     u = session.get("user")
-
-    # If no session or it doesn't have the right keys,
-    # just treat as guest instead of crashing.
-    if not isinstance(u, dict) or "role" not in u or "email" not in u:
-        return render_template("dashboard.html",
-                               name="User",
-                               role="Guest",
-                               awards=[])
+    if not u:
+        return render_template("dashboard.html", name="User", role="Guest", awards=[])
 
     # ---------- Admin dashboard ----------
     if u["role"] == "Admin":
         awards = []
-        ready_awards = []  # AI Passed
         total_approved = 0.0
         conn = get_db()
         if conn is not None:
             try:
                 cur = conn.cursor(cursor_factory=RealDictCursor)
-                # All awards, from all PIs
                 cur.execute(
                     """
                     SELECT award_id, title, created_by_email, sponsor_type,
-                           amount, start_date, end_date, status, created_at,
-                           ai_review_notes
+                        amount, start_date, end_date, status, created_at
                     FROM awards
+                    WHERE status <> 'Draft'
                     ORDER BY created_at DESC
                     """
                 )
                 awards = cur.fetchall()
 
-                # Subset that has passed AI
-                ready_awards = [
-                    a for a in awards
-                    if (a.get("status") or "").lower() == "ai passed"
-                ]
-
-                # Sum of approved amounts
                 cur.execute(
-                """
-                SELECT COALESCE(SUM(amount), 0) AS total_approved
-                FROM awards
-                WHERE status = 'Approved'
-                """
-            )
+                    "SELECT COALESCE(SUM(amount), 0) FROM awards WHERE status = 'Approved'"
+                )
                 row = cur.fetchone()
-                total_approved = 0.0
-                if row and row.get("total_approved") is not None:
-                    total_approved = float(row["total_approved"])
+                total_approved = float(row[0]) if row and row[0] is not None else 0.0
                 cur.close()
             except Exception as e:
                 print(f"DB fetch awards (admin) error: {e}")
@@ -463,7 +253,6 @@ def dashboard():
             name=u["name"],
             role=u["role"],
             awards=awards,
-            ready_awards=ready_awards,   # ✅ new
             budget_initial=budget_initial,
             budget_remaining=budget_remaining,
         )
@@ -1222,6 +1011,7 @@ def download_award_excel(award_id):
     )
     resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
     return resp
+
 # ========== Edit / Delete / Submit / Admin ==========
 
 @app.route("/awards/<int:award_id>/edit", methods=["GET", "POST"])
@@ -1463,6 +1253,7 @@ def award_edit(award_id):
     # For now we only prefill the master fields (form JS could later prefill JSON details)
     return render_template("awards_new.html", award=award)
 
+
 @app.route("/awards/<int:award_id>/delete", methods=["POST"])
 def award_delete(award_id):
     """Delete an award (PI only)."""
@@ -1493,12 +1284,11 @@ def award_delete(award_id):
 
     return redirect(url_for("dashboard"))
 
+
 @app.route("/awards/<int:award_id>/submit", methods=["POST"])
 def award_submit(award_id):
     """
-    PI clicks Submit on dashboard.
-    Flow:
-      Draft -> (AI review) -> AI Declined or AI Passed (or Pending if AI unknown)
+    PI clicks Submit on dashboard – mark award as 'Pending'.
     """
     u = session.get("user")
     if not u:
@@ -1511,61 +1301,25 @@ def award_submit(award_id):
         return make_response("DB connection failed", 500)
 
     try:
-        # 1) Load the award as a dict for AI
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur = conn.cursor()
         cur.execute(
-            "SELECT * FROM awards WHERE award_id=%s AND created_by_email=%s",
-            (award_id, u["email"]),
-        )
-        award = cur.fetchone()
-        cur.close()
-
-        if not award:
-            conn.close()
-            return "Award not found", 404
-
-        # 2) Run AI policy check
-                # 2) Run AI policy check (JSON-based helper)
-        ai_result = run_award_ai_check(award)   # <— use the JSON helper
-        decision = (ai_result.get("decision") or "").lower()
-        reason = ai_result.get("reason", "")
-
-        print("AI DECISION:", decision)   # DEBUG
-        print("AI REASON:", reason)       # DEBUG
-
-        if decision == "approve":
-            new_status = "AI Passed"
-        elif decision == "decline":
-            new_status = "AI Declined"
-        else:
-            # skipped / error / anything else
-            new_status = "Pending"
-            if not reason:
-                reason = "AI review did not return a clear approve/decline decision."
-        # 3) Update award status + store AI explanation
-        cur2 = conn.cursor()
-        cur2.execute(
-            """
-            UPDATE awards
-            SET status = %s,
-                ai_review_notes = %s
-            WHERE award_id = %s
-              AND created_by_email = %s
-            """,
-            (new_status, reason, award_id, u["email"]),
+            "UPDATE awards SET status = %s WHERE award_id = %s AND created_by_email = %s",
+            ("Pending", award_id, u["email"]),
         )
         conn.commit()
-        cur2.close()
-
+        cur.close()
     except Exception as e:
-        print(f"DB submit/AI check error: {e}")
+        print(f"DB submit award error: {e}")
         conn.rollback()
         return make_response("Submit failed", 500)
     finally:
         conn.close()
 
     return redirect(url_for("dashboard"))
+
+
 # ========== Admin actions: approve / decline ==========
+
 @app.route("/awards/<int:award_id>/approve", methods=["POST"])
 def award_approve(award_id):
     u = session.get("user")
@@ -1607,6 +1361,9 @@ def award_approve(award_id):
         )
         conn.commit()
         cur.close()
+        
+        # Initialize budget lines for approved award
+        initialize_budget_lines(award_id)
     except Exception as e:
         print(f"DB approve award error: {e}")
         conn.rollback()
@@ -1615,6 +1372,8 @@ def award_approve(award_id):
         conn.close()
 
     return redirect(url_for("dashboard"))
+
+
 @app.route("/awards/<int:award_id>/decline", methods=["POST"])
 def award_decline(award_id):
     u = session.get("user")
@@ -1641,13 +1400,1138 @@ def award_decline(award_id):
         conn.close()
 
     return redirect(url_for("dashboard"))
+
+
 # ========== Other pages ==========
+
+# ========== SUBAWARDS SYSTEM ==========
+
 @app.route("/subawards")
 def subawards():
+    """List all subawards for the user."""
     u = session.get("user")
     if not u:
         return redirect(url_for("home"))
-    return render_template("subawards.html")
+    
+    conn = get_db()
+    subawards_list = []
+    awards_map = {}
+    
+    if conn is not None:
+        try:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            
+            if u["role"] == "Admin":
+                # Admin sees all subawards
+                cur.execute(
+                    """
+                    SELECT s.*, a.title as award_title, a.status as award_status
+                    FROM subawards s
+                    LEFT JOIN awards a ON s.award_id = a.award_id
+                    ORDER BY s.created_at DESC
+                    """
+                )
+            else:
+                # PI sees only subawards for their awards
+                cur.execute(
+                    """
+                    SELECT s.*, a.title as award_title, a.status as award_status
+                    FROM subawards s
+                    INNER JOIN awards a ON s.award_id = a.award_id
+                    WHERE a.created_by_email = %s
+                    ORDER BY s.created_at DESC
+                    """,
+                    (u["email"],)
+                )
+            subawards_list = cur.fetchall()
+            # Convert amounts to float for template rendering
+            for sub in subawards_list:
+                if sub.get('amount'):
+                    sub['amount'] = float(sub['amount'])
+            
+            # Get available awards for creating new subawards
+            cur.execute(
+                """
+                SELECT award_id, title, amount, status
+                FROM awards
+                WHERE status = 'Approved'
+                ORDER BY title
+                """
+            )
+            awards = cur.fetchall()
+            # Convert amounts to float for template rendering
+            for award in awards:
+                if award.get('amount'):
+                    award['amount'] = float(award['amount'])
+            awards_map = {a['award_id']: a for a in awards}
+            
+            cur.close()
+        except psycopg2_errors.UndefinedTable:
+            # Tables don't exist - just show empty list, no error message
+            subawards_list = []
+            awards_map = {}
+        except Exception as e:
+            print(f"DB fetch subawards error: {e}")
+            # Return empty list on error
+            subawards_list = []
+            awards_map = {}
+        finally:
+            conn.close()
+    
+    return render_template("subawards.html", subawards=subawards_list, awards_map=awards_map, user=u)
+
+
+@app.route("/subawards/new")
+def subaward_new():
+    """Show form to create a new subaward."""
+    u = session.get("user")
+    if not u:
+        return redirect(url_for("home"))
+    
+    award_id = request.args.get("award_id", type=int)
+    
+    conn = get_db()
+    awards = []
+    selected_award = None
+    
+    if conn is not None:
+        try:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            
+            if u["role"] == "Admin":
+                cur.execute(
+                    """
+                    SELECT award_id, title, amount, status
+                    FROM awards
+                    WHERE status = 'Approved'
+                    ORDER BY title
+                    """
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT award_id, title, amount, status
+                    FROM awards
+                    WHERE status = 'Approved' AND created_by_email = %s
+                    ORDER BY title
+                    """,
+                    (u["email"],)
+                )
+            awards = cur.fetchall()
+            # Convert amounts to float for template rendering
+            for award in awards:
+                if award.get('amount'):
+                    award['amount'] = float(award['amount'])
+            
+            if award_id:
+                # Verify the award exists and user has permission
+                if u["role"] == "Admin":
+                    cur.execute(
+                        "SELECT * FROM awards WHERE award_id = %s",
+                        (award_id,)
+                    )
+                else:
+                    cur.execute(
+                        "SELECT * FROM awards WHERE award_id = %s AND created_by_email = %s",
+                        (award_id, u["email"])
+                    )
+                selected_award = cur.fetchone()
+            
+            cur.close()
+        except Exception as e:
+            print(f"DB fetch awards error: {e}")
+        finally:
+            conn.close()
+    
+    return render_template("subaward_new.html", awards=awards, selected_award=selected_award, user=u)
+
+
+@app.route("/subawards", methods=["POST"])
+def subaward_create():
+    """Create a new subaward."""
+    u = session.get("user")
+    if not u:
+        return redirect(url_for("home"))
+    
+    award_id = request.form.get("award_id", type=int)
+    subrecipient_name = request.form.get("subrecipient_name", "").strip()
+    subrecipient_contact = request.form.get("subrecipient_contact", "").strip()
+    subrecipient_email = request.form.get("subrecipient_email", "").strip()
+    amount = request.form.get("amount", "").strip()
+    start_date = request.form.get("start_date", "").strip()
+    end_date = request.form.get("end_date", "").strip()
+    description = request.form.get("description", "").strip()
+    
+    if not award_id or not subrecipient_name or not amount:
+        return make_response("Missing required fields", 400)
+    
+    try:
+        amount_val = float(amount)
+        if amount_val <= 0:
+            return make_response("Amount must be positive", 400)
+    except ValueError:
+        return make_response("Invalid amount", 400)
+    
+    conn = get_db()
+    if conn is None:
+        return make_response("DB connection failed", 500)
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Verify award exists and is approved
+        cur.execute(
+            """
+            SELECT award_id, amount, status, created_by_email
+            FROM awards
+            WHERE award_id = %s
+            """,
+            (award_id,)
+        )
+        award = cur.fetchone()
+        
+        if not award:
+            cur.close()
+            conn.close()
+            return "Award not found", 404
+        
+        if award['status'] != 'Approved':
+            cur.close()
+            conn.close()
+            return "Only approved awards can have subawards", 400
+        
+        # Check permissions
+        if u["role"] != "Admin" and award['created_by_email'] != u["email"]:
+            cur.close()
+            conn.close()
+            return "Unauthorized", 403
+        
+        # Check if subaward amount exceeds award amount
+        try:
+            cur.execute(
+                """
+                SELECT COALESCE(SUM(amount), 0) as total_subawards
+                FROM subawards
+                WHERE award_id = %s AND status != 'Declined'
+                """,
+                (award_id,)
+            )
+            result = cur.fetchone()
+            total_subawards = float(result['total_subawards'] or 0) if result else 0
+        except Exception as table_error:
+            # Table might not exist
+            print(f"Table access error (subawards might not exist): {table_error}")
+            cur.close()
+            conn.close()
+            return make_response("Database tables not initialized. Please run the schema migration.", 500)
+        
+        if total_subawards + amount_val > float(award['amount'] or 0):
+            cur.close()
+            conn.close()
+            return make_response("Subaward total exceeds award amount", 400)
+        
+        # Insert subaward
+        cur.execute(
+            """
+            INSERT INTO subawards (
+                award_id, subrecipient_name, subrecipient_contact,
+                subrecipient_email, amount, start_date, end_date,
+                description, status, created_by_email
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Pending', %s)
+            RETURNING subaward_id
+            """,
+            (
+                award_id, subrecipient_name, subrecipient_contact or None,
+                subrecipient_email or None, amount_val,
+                start_date or None, end_date or None,
+                description or None, u["email"]
+            )
+        )
+        subaward_id = cur.fetchone()['subaward_id']
+        
+        conn.commit()
+        cur.close()
+        
+    except psycopg2_errors.UndefinedTable as table_error:
+        print(f"Table does not exist: {table_error}")
+        conn.rollback()
+        if conn:
+            conn.close()
+        return redirect(url_for("admin_init_db"))
+    except Exception as e:
+        print(f"DB create subaward error: {e}")
+        import traceback
+        traceback.print_exc()
+        conn.rollback()
+        return make_response(f"Subaward creation failed: {str(e)}", 500)
+    finally:
+        if conn:
+            conn.close()
+    
+    return redirect(url_for("subaward_view", subaward_id=subaward_id))
+
+
+@app.route("/subawards/<int:subaward_id>")
+def subaward_view(subaward_id):
+    """View a subaward details."""
+    u = session.get("user")
+    if not u:
+        return redirect(url_for("home"))
+    
+    conn = get_db()
+    subaward = None
+    award = None
+    transactions = []
+    budget_status = {}
+    
+    if conn is not None:
+        try:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            
+            # Get subaward
+            try:
+                cur.execute(
+                    """
+                    SELECT s.*, a.title as award_title, a.status as award_status
+                    FROM subawards s
+                    LEFT JOIN awards a ON s.award_id = a.award_id
+                    WHERE s.subaward_id = %s
+                    """,
+                    (subaward_id,)
+                )
+                subaward = cur.fetchone()
+                # Convert amount to float for template rendering
+                if subaward and subaward.get('amount'):
+                    subaward['amount'] = float(subaward['amount'])
+            except psycopg2_errors.UndefinedTable:
+                cur.close()
+                conn.close()
+                return redirect(url_for("admin_init_db"))
+            except Exception as e:
+                print(f"Error fetching subaward: {e}")
+                cur.close()
+                conn.close()
+                return f"Error loading subaward: {str(e)}", 500
+            
+            if not subaward:
+                cur.close()
+                conn.close()
+                return "Subaward not found", 404
+            
+            # Get parent award first (needed for permission check)
+            cur.execute(
+                "SELECT * FROM awards WHERE award_id = %s",
+                (subaward['award_id'],)
+            )
+            award = cur.fetchone()
+            
+            if not award:
+                return "Parent award not found", 404
+            
+            # Check permissions
+            if u["role"] != "Admin" and subaward.get('created_by_email') != u["email"]:
+                # Also check if user owns the parent award
+                if award.get('created_by_email') != u["email"]:
+                    return "Unauthorized", 403
+            
+            # Get transactions (table might not exist, so catch error)
+            try:
+                cur.execute(
+                    """
+                    SELECT t.*, u.name as user_name
+                    FROM subaward_transactions t
+                    LEFT JOIN users u ON t.user_id = u.user_id
+                    WHERE t.subaward_id = %s
+                    ORDER BY t.date_submitted DESC
+                    """,
+                    (subaward_id,)
+                )
+                transactions = cur.fetchall()
+                # Convert amounts to float for template rendering
+                for txn in transactions:
+                    if txn.get('amount'):
+                        txn['amount'] = float(txn['amount'])
+            except psycopg2_errors.UndefinedTable:
+                transactions = []
+            
+            # Get budget status (table might not exist, so catch error)
+            try:
+                cur.execute(
+                    """
+                    SELECT category, allocated_amount, spent_amount, committed_amount
+                    FROM subaward_budget_lines
+                    WHERE subaward_id = %s
+                    """,
+                    (subaward_id,)
+                )
+                budget_lines = cur.fetchall()
+            except psycopg2_errors.UndefinedTable:
+                budget_lines = []
+            
+            for line in budget_lines:
+                cat = line['category'] or 'Other'
+                budget_status[cat] = {
+                    'allocated': float(line['allocated_amount'] or 0),
+                    'spent': float(line['spent_amount'] or 0),
+                    'committed': float(line['committed_amount'] or 0),
+                }
+            
+            # Add transactions to budget
+            for txn in transactions:
+                cat = txn['category'] or 'Other'
+                amount = float(txn['amount'] or 0)
+                
+                if cat not in budget_status:
+                    budget_status[cat] = {'allocated': 0, 'spent': 0, 'committed': 0}
+                
+                if txn['status'] == 'Approved':
+                    budget_status[cat]['spent'] += amount
+                elif txn['status'] == 'Pending':
+                    budget_status[cat]['committed'] += amount
+            
+            # Calculate remaining
+            for cat in budget_status:
+                budget_status[cat]['remaining'] = (
+                    budget_status[cat]['allocated'] -
+                    budget_status[cat]['spent'] -
+                    budget_status[cat]['committed']
+                )
+            
+            cur.close()
+        except Exception as e:
+            print(f"DB fetch subaward error: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            if conn:
+                conn.close()
+    
+    # Calculate totals safely
+    totals = {
+        'allocated': sum(cat.get('allocated', 0) for cat in budget_status.values()) if budget_status else 0,
+        'spent': sum(cat.get('spent', 0) for cat in budget_status.values()) if budget_status else 0,
+        'committed': sum(cat.get('committed', 0) for cat in budget_status.values()) if budget_status else 0,
+        'remaining': sum(cat.get('remaining', 0) for cat in budget_status.values()) if budget_status else 0,
+    }
+    
+    return render_template(
+        "subaward_view.html",
+        subaward=subaward,
+        award=award,
+        transactions=transactions,
+        budget_status=budget_status,
+        totals=totals,
+        user=u
+    )
+
+
+@app.route("/subawards/<int:subaward_id>/approve", methods=["POST"])
+def subaward_approve(subaward_id):
+    """Approve a subaward (Admin only)."""
+    u = session.get("user")
+    if not u or u.get("role") != "Admin":
+        return redirect(url_for("home"))
+    
+    conn = get_db()
+    if conn is None:
+        return make_response("DB connection failed", 500)
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        # Check if subaward exists
+        cur.execute(
+            "SELECT subaward_id FROM subawards WHERE subaward_id = %s",
+            (subaward_id,)
+        )
+        if not cur.fetchone():
+            return "Subaward not found", 404
+        
+        cur.execute(
+            "UPDATE subawards SET status = 'Approved' WHERE subaward_id = %s",
+            (subaward_id,)
+        )
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        print(f"DB approve subaward error: {e}")
+        conn.rollback()
+        return make_response("Approve failed", 500)
+    finally:
+        conn.close()
+    
+    return redirect(url_for("subaward_view", subaward_id=subaward_id))
+
+
+@app.route("/subawards/<int:subaward_id>/delete", methods=["POST"])
+def subaward_delete(subaward_id):
+    """Delete a subaward."""
+    u = session.get("user")
+    if not u:
+        return redirect(url_for("home"))
+    
+    conn = get_db()
+    if conn is None:
+        return make_response("DB connection failed", 500)
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Check permissions
+        cur.execute(
+            """
+            SELECT s.*, a.created_by_email as award_owner
+            FROM subawards s
+            LEFT JOIN awards a ON s.award_id = a.award_id
+            WHERE s.subaward_id = %s
+            """,
+            (subaward_id,)
+        )
+        subaward = cur.fetchone()
+        
+        if not subaward:
+            return "Subaward not found", 404
+        
+        if u["role"] != "Admin" and subaward['created_by_email'] != u["email"] and subaward.get('award_owner') != u["email"]:
+            return "Unauthorized", 403
+        
+        cur.execute("DELETE FROM subawards WHERE subaward_id = %s", (subaward_id,))
+        conn.commit()
+        cur.close()
+        
+    except Exception as e:
+        print(f"DB delete subaward error: {e}")
+        conn.rollback()
+        return make_response("Delete failed", 500)
+    finally:
+        conn.close()
+    
+    return redirect(url_for("subawards"))
+
+
+# ========== TRANSACTION SYSTEM ==========
+
+def get_budget_status(award_id):
+    """Calculate budget status for an award: allocated, committed, spent, remaining by category."""
+    conn = get_db()
+    if conn is None:
+        return {}
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Get budget lines (allocated amounts by category)
+        cur.execute(
+            """
+            SELECT category, allocated_amount, spent_amount, committed_amount
+            FROM budget_lines
+            WHERE award_id = %s
+            """,
+            (award_id,)
+        )
+        budget_lines = cur.fetchall()
+        
+        # Get transactions
+        cur.execute(
+            """
+            SELECT category, amount, status
+            FROM transactions
+            WHERE award_id = %s
+            """,
+            (award_id,)
+        )
+        transactions = cur.fetchall()
+        
+        # Calculate by category
+        categories = {}
+        
+        # Initialize from budget_lines
+        for line in budget_lines:
+            cat = line['category'] or 'Other'
+            categories[cat] = {
+                'allocated': float(line['allocated_amount'] or 0),
+                'spent': float(line['spent_amount'] or 0),
+                'committed': float(line['committed_amount'] or 0),
+            }
+        
+        # Add transactions
+        for txn in transactions:
+            cat = txn['category'] or 'Other'
+            amount = float(txn['amount'] or 0)
+            status = txn['status']
+            
+            if cat not in categories:
+                categories[cat] = {'allocated': 0, 'spent': 0, 'committed': 0}
+            
+            if status == 'Approved':
+                categories[cat]['spent'] += amount
+            elif status == 'Pending':
+                categories[cat]['committed'] += amount
+        
+        # Calculate remaining
+        for cat in categories:
+            categories[cat]['remaining'] = (
+                categories[cat]['allocated'] - 
+                categories[cat]['spent'] - 
+                categories[cat]['committed']
+            )
+        
+        cur.close()
+        return categories
+        
+    except Exception as e:
+        print(f"Budget status calculation error: {e}")
+        return {}
+    finally:
+        conn.close()
+
+
+def initialize_budget_lines(award_id):
+    """Initialize budget_lines from award's budget breakdown."""
+    conn = get_db()
+    if conn is None:
+        return False
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Get award details
+        cur.execute(
+            """
+            SELECT amount, budget_personnel, budget_equipment, 
+                   budget_travel, budget_materials, personnel_json,
+                   domestic_travel_json, international_travel_json, materials_json
+            FROM awards
+            WHERE award_id = %s
+            """,
+            (award_id,)
+        )
+        award = cur.fetchone()
+        
+        if not award:
+            cur.close()
+            return False
+        
+        # Calculate budget by category from JSON data
+        categories = {}
+        
+        # Personnel
+        personnel = json.loads(award['personnel_json']) if award['personnel_json'] else []
+        personnel_total = 0
+        for p in personnel:
+            if isinstance(p, dict):
+                hours_list = p.get('hours', [])
+                if isinstance(hours_list, list):
+                    for h in hours_list:
+                        if isinstance(h, dict):
+                            hrs = float(h.get('hours', 0) or 0)
+                            # Assume $50/hour average (should come from cost_rates table later)
+                            personnel_total += hrs * 50
+        categories['Personnel'] = personnel_total
+        
+        # Travel
+        dom_travel = json.loads(award['domestic_travel_json']) if award['domestic_travel_json'] else []
+        intl_travel = json.loads(award['international_travel_json']) if award['international_travel_json'] else []
+        travel_total = 0
+        for t in dom_travel + intl_travel:
+            if isinstance(t, dict):
+                flight = float(t.get('flight', 0) or 0)
+                taxi = float(t.get('taxi', 0) or 0)
+                food = float(t.get('food', 0) or 0)
+                days = float(t.get('days', 0) or 0)
+                travel_total += flight + (taxi + food) * days
+        categories['Travel'] = travel_total
+        
+        # Materials
+        materials = json.loads(award['materials_json']) if award['materials_json'] else []
+        materials_total = 0
+        for m in materials:
+            if isinstance(m, dict):
+                cost = float(m.get('cost', 0) or 0)
+                materials_total += cost
+        categories['Materials'] = materials_total
+        
+        # Equipment (from budget_equipment field)
+        categories['Equipment'] = float(award['budget_equipment'] or 0)
+        
+        # Other (remaining from total)
+        total_allocated = sum(categories.values())
+        total_award = float(award['amount'] or 0)
+        categories['Other'] = max(0, total_award - total_allocated)
+        
+        # Insert/update budget_lines
+        for category, amount in categories.items():
+            if amount > 0:
+                # Check if exists
+                cur.execute(
+                    """
+                    SELECT line_id FROM budget_lines
+                    WHERE award_id = %s AND category = %s
+                    """,
+                    (award_id, category)
+                )
+                exists = cur.fetchone()
+                
+                if exists:
+                    # Update
+                    cur.execute(
+                        """
+                        UPDATE budget_lines
+                        SET allocated_amount = %s
+                        WHERE award_id = %s AND category = %s
+                        """,
+                        (amount, award_id, category)
+                    )
+                else:
+                    # Insert
+                    cur.execute(
+                        """
+                        INSERT INTO budget_lines (award_id, category, allocated_amount, spent_amount, committed_amount)
+                        VALUES (%s, %s, %s, 0, 0)
+                        """,
+                        (award_id, category, amount)
+                    )
+        
+        conn.commit()
+        cur.close()
+        return True
+        
+    except Exception as e:
+        print(f"Initialize budget lines error: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+
+@app.route("/transactions/new")
+def transaction_new():
+    """Show form to create a new transaction."""
+    u = session.get("user")
+    if not u:
+        return redirect(url_for("home"))
+    
+    award_id = request.args.get("award_id", type=int)
+    if not award_id:
+        return redirect(url_for("dashboard"))
+    
+    # Get award details
+    conn = get_db()
+    award = None
+    if conn is not None:
+        try:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(
+                """
+                SELECT award_id, title, amount, status
+                FROM awards
+                WHERE award_id = %s AND (created_by_email = %s OR %s = 'Admin')
+                """,
+                (award_id, u["email"], u["role"])
+            )
+            award = cur.fetchone()
+            cur.close()
+        except Exception as e:
+            print(f"DB fetch award error: {e}")
+        finally:
+            conn.close()
+    
+    if not award:
+        return "Award not found", 404
+    
+    if award['status'] != 'Approved':
+        return "Only approved awards can have transactions", 400
+    
+    # Get budget status
+    budget_status = get_budget_status(award_id)
+    
+    return render_template("transaction_new.html", award=award, budget_status=budget_status, user=u)
+
+
+@app.route("/transactions", methods=["POST"])
+def transaction_create():
+    """Create a new transaction."""
+    u = session.get("user")
+    if not u:
+        return redirect(url_for("home"))
+    
+    award_id = request.form.get("award_id", type=int)
+    category = request.form.get("category", "").strip()
+    description = request.form.get("description", "").strip()
+    amount = request.form.get("amount", "").strip()
+    date_submitted = request.form.get("date_submitted", "").strip()
+    
+    if not award_id or not category or not description or not amount or not date_submitted:
+        return make_response("Missing required fields", 400)
+    
+    try:
+        amount_val = float(amount)
+        if amount_val <= 0:
+            return make_response("Amount must be positive", 400)
+    except ValueError:
+        return make_response("Invalid amount", 400)
+    
+    conn = get_db()
+    if conn is None:
+        return make_response("DB connection failed", 500)
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Verify award exists and is approved
+        cur.execute(
+            """
+            SELECT award_id, status, created_by_email
+            FROM awards
+            WHERE award_id = %s
+            """,
+            (award_id,)
+        )
+        award = cur.fetchone()
+        
+        if not award:
+            return "Award not found", 404
+        
+        if award['status'] != 'Approved':
+            return "Only approved awards can have transactions", 400
+        
+        # Check permissions
+        if u["role"] != "Admin" and award['created_by_email'] != u["email"]:
+            return "Unauthorized", 403
+        
+        # Get user_id
+        cur.execute("SELECT user_id FROM users WHERE email = %s", (u["email"],))
+        user_row = cur.fetchone()
+        user_id = user_row['user_id'] if user_row else None
+        
+        # Check budget availability (only if budget has been allocated)
+        budget_status = get_budget_status(award_id)
+        cat_budget = budget_status.get(category, {})
+        allocated = cat_budget.get('allocated', 0)
+        remaining = cat_budget.get('remaining', 0)
+        
+        # Only check budget if there's an allocated amount for this category
+        # If no budget allocated yet, allow the transaction (it will create the budget line)
+        if allocated > 0 and amount_val > remaining:
+            return make_response(f"Insufficient budget. Remaining: ${remaining:,.2f}", 400)
+        
+        # Insert transaction
+        cur.execute(
+            """
+            INSERT INTO transactions (award_id, user_id, category, description, amount, date_submitted, status)
+            VALUES (%s, %s, %s, %s, %s, %s, 'Pending')
+            RETURNING transaction_id
+            """,
+            (award_id, user_id, category, description, amount_val, date_submitted)
+        )
+        transaction_id = cur.fetchone()['transaction_id']
+        
+        # Update committed amount in budget_lines
+        # Check if budget line exists
+        cur.execute(
+            """
+            SELECT line_id FROM budget_lines
+            WHERE award_id = %s AND category = %s
+            """,
+            (award_id, category)
+        )
+        exists = cur.fetchone()
+        
+        if exists:
+            cur.execute(
+                """
+                UPDATE budget_lines
+                SET committed_amount = committed_amount + %s
+                WHERE award_id = %s AND category = %s
+                """,
+                (amount_val, award_id, category)
+            )
+        else:
+            # Create budget line if it doesn't exist
+            cur.execute(
+                """
+                INSERT INTO budget_lines (award_id, category, allocated_amount, spent_amount, committed_amount)
+                VALUES (%s, %s, 0, 0, %s)
+                """,
+                (award_id, category, amount_val)
+            )
+        
+        conn.commit()
+        cur.close()
+        
+    except Exception as e:
+        print(f"DB create transaction error: {e}")
+        import traceback
+        traceback.print_exc()
+        conn.rollback()
+        return make_response(f"Transaction creation failed: {str(e)}", 500)
+    finally:
+        conn.close()
+    
+    return redirect(url_for("transactions_list", award_id=award_id))
+
+
+@app.route("/transactions")
+def transactions_list():
+    """List all transactions for an award or user."""
+    u = session.get("user")
+    if not u:
+        return redirect(url_for("home"))
+    
+    award_id = request.args.get("award_id", type=int)
+    
+    conn = get_db()
+    transactions = []
+    award = None
+    
+    if conn is not None:
+        try:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            
+            if award_id:
+                # Get transactions for specific award
+                cur.execute(
+                    """
+                    SELECT t.*, a.title as award_title, u.name as user_name
+                    FROM transactions t
+                    LEFT JOIN awards a ON t.award_id = a.award_id
+                    LEFT JOIN users u ON t.user_id = u.user_id
+                    WHERE t.award_id = %s
+                    ORDER BY t.date_submitted DESC, t.transaction_id DESC
+                    """,
+                    (award_id,)
+                )
+                transactions = cur.fetchall()
+                
+                # Get award details
+                cur.execute("SELECT * FROM awards WHERE award_id = %s", (award_id,))
+                award = cur.fetchone()
+            else:
+                # Get all transactions for user
+                if u["role"] == "Admin":
+                    cur.execute(
+                        """
+                        SELECT t.*, a.title as award_title, u.name as user_name
+                        FROM transactions t
+                        LEFT JOIN awards a ON t.award_id = a.award_id
+                        LEFT JOIN users u ON t.user_id = u.user_id
+                        ORDER BY t.date_submitted DESC, t.transaction_id DESC
+                        """
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT t.*, a.title as award_title, u.name as user_name
+                        FROM transactions t
+                        LEFT JOIN awards a ON t.award_id = a.award_id
+                        LEFT JOIN users u ON t.user_id = u.user_id
+                        WHERE a.created_by_email = %s
+                        ORDER BY t.date_submitted DESC, t.transaction_id DESC
+                        """,
+                        (u["email"],)
+                    )
+                transactions = cur.fetchall()
+            
+            cur.close()
+        except Exception as e:
+            print(f"DB fetch transactions error: {e}")
+        finally:
+            conn.close()
+    
+    return render_template("transactions_list.html", transactions=transactions, award=award, user=u)
+
+
+@app.route("/awards/<int:award_id>/budget")
+def budget_status(award_id):
+    """Show budget status dashboard for an award."""
+    u = session.get("user")
+    if not u:
+        return redirect(url_for("home"))
+    
+    conn = get_db()
+    award = None
+    budget_status_data = {}
+    
+    if conn is not None:
+        try:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(
+                """
+                SELECT * FROM awards
+                WHERE award_id = %s AND (created_by_email = %s OR %s = 'Admin')
+                """,
+                (award_id, u["email"], u["role"])
+            )
+            award = cur.fetchone()
+            cur.close()
+        except Exception as e:
+            print(f"DB fetch award error: {e}")
+        finally:
+            conn.close()
+    
+    if not award:
+        return "Award not found", 404
+    
+    # Initialize budget lines if award is approved and lines don't exist
+    if award['status'] == 'Approved':
+        conn = get_db()
+        if conn is not None:
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT COUNT(*) FROM budget_lines WHERE award_id = %s",
+                    (award_id,)
+                )
+                count = cur.fetchone()[0]
+                cur.close()
+                
+                if count == 0:
+                    initialize_budget_lines(award_id)
+            except Exception as e:
+                print(f"Budget initialization check error: {e}")
+            finally:
+                conn.close()
+    
+    budget_status_data = get_budget_status(award_id)
+    
+    # Calculate totals
+    totals = {
+        'allocated': sum(cat.get('allocated', 0) for cat in budget_status_data.values()),
+        'spent': sum(cat.get('spent', 0) for cat in budget_status_data.values()),
+        'committed': sum(cat.get('committed', 0) for cat in budget_status_data.values()),
+        'remaining': sum(cat.get('remaining', 0) for cat in budget_status_data.values()),
+    }
+    
+    return render_template(
+        "budget_status.html",
+        award=award,
+        budget_status=budget_status_data,
+        totals=totals,
+        user=u
+    )
+
+
+@app.route("/transactions/<int:transaction_id>/approve", methods=["POST"])
+def transaction_approve(transaction_id):
+    """Approve a transaction (Admin/Finance only)."""
+    u = session.get("user")
+    if not u or u.get("role") not in ("Admin", "Finance"):
+        return redirect(url_for("home"))
+    
+    conn = get_db()
+    if conn is None:
+        return make_response("DB connection failed", 500)
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Get transaction details
+        cur.execute(
+            """
+            SELECT t.*, a.status as award_status
+            FROM transactions t
+            JOIN awards a ON t.award_id = a.award_id
+            WHERE t.transaction_id = %s
+            """,
+            (transaction_id,)
+        )
+        txn = cur.fetchone()
+        
+        if not txn:
+            return "Transaction not found", 404
+        
+        if txn['status'] != 'Pending':
+            return "Transaction already processed", 400
+        
+        if txn['award_status'] != 'Approved':
+            return "Award must be approved", 400
+        
+        # Update transaction status
+        cur.execute(
+            "UPDATE transactions SET status = 'Approved' WHERE transaction_id = %s",
+            (transaction_id,)
+        )
+        
+        # Move from committed to spent in budget_lines
+        cur.execute(
+            """
+            UPDATE budget_lines
+            SET committed_amount = committed_amount - %s,
+                spent_amount = spent_amount + %s
+            WHERE award_id = %s AND category = %s
+            """,
+            (txn['amount'], txn['amount'], txn['award_id'], txn['category'])
+        )
+        
+        conn.commit()
+        cur.close()
+        
+    except Exception as e:
+        print(f"DB approve transaction error: {e}")
+        conn.rollback()
+        return make_response("Approve failed", 500)
+    finally:
+        conn.close()
+    
+    return redirect(url_for("transactions_list", award_id=txn['award_id']))
+
+
+@app.route("/transactions/<int:transaction_id>/decline", methods=["POST"])
+def transaction_decline(transaction_id):
+    """Decline a transaction (Admin/Finance only)."""
+    u = session.get("user")
+    if not u or u.get("role") not in ("Admin", "Finance"):
+        return redirect(url_for("home"))
+    
+    conn = get_db()
+    if conn is None:
+        return make_response("DB connection failed", 500)
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Get transaction details
+        cur.execute(
+            "SELECT * FROM transactions WHERE transaction_id = %s",
+            (transaction_id,)
+        )
+        txn = cur.fetchone()
+        
+        if not txn:
+            return "Transaction not found", 404
+        
+        if txn['status'] != 'Pending':
+            return "Transaction already processed", 400
+        
+        award_id = txn['award_id']
+        
+        # Update transaction status
+        cur.execute(
+            "UPDATE transactions SET status = 'Declined' WHERE transaction_id = %s",
+            (transaction_id,)
+        )
+        
+        # Remove from committed amount in budget_lines
+        cur.execute(
+            """
+            UPDATE budget_lines
+            SET committed_amount = committed_amount - %s
+            WHERE award_id = %s AND category = %s
+            """,
+            (txn['amount'], award_id, txn['category'])
+        )
+        
+        conn.commit()
+        cur.close()
+        
+    except Exception as e:
+        print(f"DB decline transaction error: {e}")
+        conn.rollback()
+        return make_response("Decline failed", 500)
+    finally:
+        conn.close()
+    
+    return redirect(url_for("transactions_list", award_id=award_id))
 
 
 @app.route("/settings")
@@ -1655,34 +2539,305 @@ def settings():
     u = session.get("user")
     if not u:
         return redirect(url_for("home"))
-    return render_template("settings.html")
+    return render_template("settings.html", user=u)
+
 
 @app.route("/profile")
 def profile():
     u = session.get("user")
     if not u:
         return redirect(url_for("home"))
-    return render_template("profile.html")
+    awards = []
+    conn = get_db()
+    if conn is not None:
+        try:
+            cur = conn.cursor(dictionary=True)
+            cur.execute(
+                """
+                SELECT award_id, title, sponsor_type, amount, start_date, end_date, status, created_at
+                FROM awards
+                WHERE created_by_email=%s
+                ORDER BY created_at DESC
+                """,
+                (u["email"],),
+            )
+            awards = cur.fetchall()
+            cur.close()
+        except Exception as e:
+            print(f"DB fetch awards (profile) error: {e}")
+        finally:
+            conn.close()
+    stats = {
+        "total_awards": len(awards),
+        "active_awards": sum(1 for a in awards if (a.get("status") or "").lower() == "active"),
+        "latest_award": awards[0] if awards else None,
+    }
+    return render_template("profile.html", user=u, awards=awards, stats=stats)
+
 
 @app.route("/policies/university")
 def university_policies():
-    try:
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("SELECT * FROM policies WHERE policy_level = 'University'")
-        policies = cur.fetchall()
-        cur.close()
-        conn.close()
-        return render_template("policies_university.html", policies=policies)
-    except Exception as e:
-        return f"Database error: {e}"
+    policy_data = [
+        {
+            "level": "University",
+            "title": "University Research Budget Policy",
+            "sections": [
+                {
+                    "heading": "Personnel (Salary)",
+                    "rules": [
+                        "Salaries are only allowed for people who directly work on research tasks.",
+                        "Paying anyone who does not contribute to the research is not allowed.",
+                        "Administrative staff cannot be charged unless 100% dedicated to the project.",
+                        "Inflating effort or hours is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Equipment",
+                    "rules": [
+                        "Only research-related equipment can be purchased.",
+                        "Equipment under $5,000 is allowed.",
+                        "Equipment over $5,000 requires university approval.",
+                        "Personal-use electronics are not allowed.",
+                        "Buying equipment not needed for the project is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Travel",
+                    "rules": [
+                        "Travel must be directly related to the project.",
+                        "Only economy-class travel is allowed.",
+                        "Upgraded seats are not allowed.",
+                        "Personal or vacation travel is not allowed.",
+                        "Charging unrelated travel is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Materials & Supplies",
+                    "rules": [
+                        "Only supplies used for research activities are allowed.",
+                        "Office supplies are not allowed.",
+                        "Decorations are not allowed.",
+                        "Non-research purchases will be treated as violations.",
+                    ],
+                },
+                {
+                    "heading": "Other Direct Costs",
+                    "rules": [
+                        "Participant incentives are allowed.",
+                        "Publication fees are allowed.",
+                        "Research-related software is allowed.",
+                        "Membership fees are not allowed unless required.",
+                        "Charging unrelated services is a violation.",
+                    ],
+                },
+            ],
+        },
+        {
+            "level": "Sponsor",
+            "title": "Sponsor Research Budget Policy",
+            "sections": [
+                {
+                    "heading": "Personnel (Salary)",
+                    "rules": [
+                        "Only salaries listed in the sponsor-approved proposal are allowed.",
+                        "Adding new personnel without approval is not allowed.",
+                        "Admin/clerical salaries require written sponsor approval.",
+                        "Charging unapproved salary lines is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Equipment",
+                    "rules": [
+                        "Only equipment approved in the proposal is allowed.",
+                        "New or unplanned equipment purchases require sponsor approval.",
+                        "General-purpose equipment is not allowed.",
+                        "Buying items not listed in the proposal is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Travel",
+                    "rules": [
+                        "Only travel included in the proposal budget is allowed.",
+                        "Sponsor-required travel is allowed.",
+                        "Foreign travel requires approval.",
+                        "Non-research travel is not allowed.",
+                        "Charging personal travel is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Participant Support Costs (PSC)",
+                    "rules": [
+                        "PSC can only be used for participant stipends, travel, lodging, and meals.",
+                        "PSC cannot be used to pay PI or staff salaries.",
+                        "PSC cannot be rebudgeted without sponsor approval.",
+                        "Using PSC funds for equipment is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Subawards",
+                    "rules": [
+                        "Only approved subawards listed in the proposal are allowed.",
+                        "Informal payments without agreements are not allowed.",
+                        "Adding new partners requires sponsor approval.",
+                        "Paying unapproved subrecipients is a violation.",
+                    ],
+                },
+            ],
+        },
+        {
+            "level": "Federal",
+            "title": "Federal Policy",
+            "sections": [
+                {
+                    "heading": "Personnel (Salary)",
+                    "rules": [
+                        "Salaries must match the percentage of time worked on the project.",
+                        "Paying someone more than their normal rate is not allowed.",
+                        "Charging unrelated work to the project is a violation.",
+                        "Administrative salaries are only allowed in special circumstances.",
+                    ],
+                },
+                {
+                    "heading": "Equipment",
+                    "rules": [
+                        "Equipment must be necessary for the project.",
+                        "Federal procurement rules must be followed.",
+                        "Splitting purchases to avoid bidding rules is not allowed.",
+                        "Buying equipment for future projects is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Travel",
+                    "rules": [
+                        "Only economy travel is allowed.",
+                        "Travel must support project goals.",
+                        "Foreign travel must follow the Fly America Act.",
+                        "Business/first-class travel is not allowed.",
+                        "Charging personal travel is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Subawards & Procurement",
+                    "rules": [
+                        "Vendors must be selected competitively when required.",
+                        "Sole-source purchases must be documented.",
+                        "Personal relationships cannot influence vendor selection.",
+                        "Paying individuals without contracts is a violation.",
+                    ],
+                },
+                {
+                    "heading": "Documentation",
+                    "rules": [
+                        "Receipts are required for all expenses.",
+                        "Justifications must clearly show project benefit.",
+                        "Missing documentation is not allowed.",
+                        "Vague explanations are considered violations.",
+                    ],
+                },
+            ],
+        },
+    ]
+    return render_template("policies_university.html", policies=policy_data)
 
 
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect(url_for("home"))
+
+
+@app.route("/admin/init-db", methods=["GET", "POST"])
+def admin_init_db():
+    """Admin route to manually initialize database schema."""
+    u = session.get("user")
+    if not u or u.get("role") != "Admin":
+        return "Unauthorized - Admin access required", 403
+    
+    if request.method == "POST":
+        conn = get_db()
+        if conn is None:
+            return "Database connection failed", 500
+        
+        try:
+            cur = conn.cursor()
+            schema_file = os.path.join(os.path.dirname(__file__), "schema_postgresql.sql")
+            if os.path.exists(schema_file):
+                with open(schema_file, 'r') as f:
+                    schema_sql = f.read()
+                
+                # Remove comments and execute
+                lines = schema_sql.split('\n')
+                cleaned_lines = []
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith('--'):
+                        cleaned_lines.append(line)
+                cleaned_sql = '\n'.join(cleaned_lines)
+                
+                try:
+                    cur.execute(cleaned_sql)
+                    conn.commit()
+                    message = "✓ Database schema initialized successfully!"
+                except Exception as full_error:
+                    # Try statement by statement
+                    statements = schema_sql.split(';')
+                    executed = 0
+                    for statement in statements:
+                        statement = statement.strip()
+                        if statement and not statement.startswith('--') and not statement.upper().startswith('SELECT'):
+                            try:
+                                cur.execute(statement)
+                                executed += 1
+                            except Exception as stmt_error:
+                                error_msg = str(stmt_error)
+                                if 'already exists' not in error_msg.lower():
+                                    print(f"Statement error: {stmt_error}")
+                    conn.commit()
+                    message = f"✓ Database schema initialized! ({executed} statements executed)"
+                
+                cur.close()
+                conn.close()
+                # Redirect to subawards page after successful initialization
+                return redirect(url_for("subawards"))
+            else:
+                return f"Schema file not found: {schema_file}", 404
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return f"Error initializing database: {str(e)}", 500
+    
+    # GET request - automatically initialize and redirect
+    # No confirmation page, just do it
+    conn = get_db()
+    if conn is None:
+        return "Database connection failed", 500
+    
+    try:
+        cur = conn.cursor()
+        schema_file = os.path.join(os.path.dirname(__file__), "schema_postgresql.sql")
+        if os.path.exists(schema_file):
+            with open(schema_file, 'r') as f:
+                schema_sql = f.read()
+            
+            # Execute statements
+            statements = schema_sql.split(';')
+            for statement in statements:
+                statement = statement.strip()
+                if statement and not statement.startswith('--') and not statement.upper().startswith('SELECT'):
+                    try:
+                        cur.execute(statement)
+                    except Exception:
+                        pass  # Ignore errors (tables might already exist)
+            conn.commit()
+        cur.close()
+        conn.close()
+    except Exception:
+        pass
+    
+    # Always redirect to subawards
+    return redirect(url_for("subawards"))
+
+
 if __name__ == "__main__":
     init_db_if_needed()
-    port = int(os.environ.get("PORT", 8000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(debug=True, port=8000)
