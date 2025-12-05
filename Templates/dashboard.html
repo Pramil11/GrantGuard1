@@ -80,6 +80,18 @@
                         </form>
                     {% endif %}
 
+                    {# Budget and Transactions for Approved awards #}
+                    {% if a.status == 'Approved' %}
+                        <a class="btn-small-success"
+                        href="{{ url_for('budget_status', award_id=a.award_id) }}">
+                        Budget
+                        </a>
+                        <a class="btn-small-info"
+                        href="{{ url_for('transactions_list', award_id=a.award_id) }}">
+                        Transactions
+                        </a>
+                    {% endif %}
+
                     {# Delete – keep available always (or you can also wrap in an if) #}
                     <form method="post"
                             action="{{ url_for('award_delete', award_id=a.award_id) }}"

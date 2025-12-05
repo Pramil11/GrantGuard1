@@ -97,9 +97,14 @@ CREATE TABLE IF NOT EXISTS budget_lines (
     category VARCHAR(100),
     allocated_amount DECIMAL(12,2),
     spent_amount DECIMAL(12,2) DEFAULT 0.00,
+    committed_amount DECIMAL(12,2) DEFAULT 0.00,
     CONSTRAINT budget_lines_award_id_fkey FOREIGN KEY (award_id)
         REFERENCES awards(award_id) ON DELETE CASCADE
 );
+
+-- Add committed_amount column if it doesn't exist
+ALTER TABLE budget_lines
+  ADD COLUMN IF NOT EXISTS committed_amount DECIMAL(12,2) DEFAULT 0.00;
 
 CREATE INDEX IF NOT EXISTS budget_lines_award_id_idx ON budget_lines(award_id);
 
@@ -200,5 +205,61 @@ ALTER TABLE awards
 
 ALTER TABLE awards
   ADD COLUMN IF NOT EXISTS materials_json JSONB;
-Select user_id, name, email, role, PASSWORD
-FROM users
+
+-- ======================
+-- SUBAWARDS TABLE
+-- ======================
+CREATE TABLE IF NOT EXISTS subawards (
+    subaward_id SERIAL PRIMARY KEY,
+    award_id INTEGER NOT NULL,
+    subrecipient_name VARCHAR(200) NOT NULL,
+    subrecipient_contact VARCHAR(255),
+    subrecipient_email VARCHAR(255),
+    amount DECIMAL(15,2) NOT NULL,
+    start_date DATE,
+    end_date DATE,
+    description TEXT,
+    status VARCHAR(50) DEFAULT 'Pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by_email VARCHAR(255),
+    CONSTRAINT subawards_award_id_fkey FOREIGN KEY (award_id)
+        REFERENCES awards(award_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS subawards_award_id_idx ON subawards(award_id);
+CREATE INDEX IF NOT EXISTS subawards_status_idx ON subawards(status);
+
+-- Budget lines for subawards (similar to main awards)
+CREATE TABLE IF NOT EXISTS subaward_budget_lines (
+    line_id SERIAL PRIMARY KEY,
+    subaward_id INTEGER NOT NULL,
+    category VARCHAR(100),
+    allocated_amount DECIMAL(12,2),
+    spent_amount DECIMAL(12,2) DEFAULT 0.00,
+    committed_amount DECIMAL(12,2) DEFAULT 0.00,
+    CONSTRAINT subaward_budget_lines_subaward_id_fkey FOREIGN KEY (subaward_id)
+        REFERENCES subawards(subaward_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS subaward_budget_lines_subaward_id_idx ON subaward_budget_lines(subaward_id);
+
+-- Transactions for subawards
+CREATE TABLE IF NOT EXISTS subaward_transactions (
+    transaction_id SERIAL PRIMARY KEY,
+    subaward_id INTEGER NOT NULL,
+    user_id INTEGER,
+    category VARCHAR(100),
+    description TEXT,
+    amount DECIMAL(12,2),
+    date_submitted DATE,
+    status VARCHAR(20) DEFAULT 'Pending',
+    CONSTRAINT subaward_transactions_status_check
+        CHECK (status IN ('Pending', 'Approved', 'Declined')),
+    CONSTRAINT subaward_transactions_subaward_id_fkey FOREIGN KEY (subaward_id)
+        REFERENCES subawards(subaward_id) ON DELETE CASCADE,
+    CONSTRAINT subaward_transactions_user_id_fkey FOREIGN KEY (user_id)
+        REFERENCES users(user_id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS subaward_transactions_subaward_id_idx ON subaward_transactions(subaward_id);
+CREATE INDEX IF NOT EXISTS subaward_transactions_user_id_idx ON subaward_transactions(user_id);

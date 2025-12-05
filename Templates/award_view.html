@@ -207,6 +207,14 @@
   <a href="{{ url_for('download_award_excel', award_id=award.award_id) }}" class="btn btn-secondary" style="margin-left:8px;">
     Download Excel
   </a>
+  {% if award.status == 'Approved' %}
+  <a href="{{ url_for('budget_status', award_id=award.award_id) }}" class="btn" style="margin-left:8px; background: #0b84f3;">
+    Budget Status
+  </a>
+  <a href="{{ url_for('transactions_list', award_id=award.award_id) }}" class="btn" style="margin-left:8px; background: #6b7280;">
+    Transactions
+  </a>
+  {% endif %}
 </div>
 
 

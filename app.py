@@ -1328,6 +1328,9 @@ def award_approve(award_id):
         )
         conn.commit()
         cur.close()
+        
+        # Initialize budget lines for approved award
+        initialize_budget_lines(award_id)
     except Exception as e:
         print(f"DB approve award error: {e}")
         conn.rollback()
@@ -1374,6 +1377,626 @@ def subawards():
     if not u:
         return redirect(url_for("home"))
     return render_template("subawards.html")
+
+
+# ========== TRANSACTION SYSTEM ==========
+
+def get_budget_status(award_id):
+    """Calculate budget status for an award: allocated, committed, spent, remaining by category."""
+    conn = get_db()
+    if conn is None:
+        return {}
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Get budget lines (allocated amounts by category)
+        cur.execute(
+            """
+            SELECT category, allocated_amount, spent_amount, committed_amount
+            FROM budget_lines
+            WHERE award_id = %s
+            """,
+            (award_id,)
+        )
+        budget_lines = cur.fetchall()
+        
+        # Get transactions
+        cur.execute(
+            """
+            SELECT category, amount, status
+            FROM transactions
+            WHERE award_id = %s
+            """,
+            (award_id,)
+        )
+        transactions = cur.fetchall()
+        
+        # Calculate by category
+        categories = {}
+        
+        # Initialize from budget_lines
+        for line in budget_lines:
+            cat = line['category'] or 'Other'
+            categories[cat] = {
+                'allocated': float(line['allocated_amount'] or 0),
+                'spent': float(line['spent_amount'] or 0),
+                'committed': float(line['committed_amount'] or 0),
+            }
+        
+        # Add transactions
+        for txn in transactions:
+            cat = txn['category'] or 'Other'
+            amount = float(txn['amount'] or 0)
+            status = txn['status']
+            
+            if cat not in categories:
+                categories[cat] = {'allocated': 0, 'spent': 0, 'committed': 0}
+            
+            if status == 'Approved':
+                categories[cat]['spent'] += amount
+            elif status == 'Pending':
+                categories[cat]['committed'] += amount
+        
+        # Calculate remaining
+        for cat in categories:
+            categories[cat]['remaining'] = (
+                categories[cat]['allocated'] - 
+                categories[cat]['spent'] - 
+                categories[cat]['committed']
+            )
+        
+        cur.close()
+        return categories
+        
+    except Exception as e:
+        print(f"Budget status calculation error: {e}")
+        return {}
+    finally:
+        conn.close()
+
+
+def initialize_budget_lines(award_id):
+    """Initialize budget_lines from award's budget breakdown."""
+    conn = get_db()
+    if conn is None:
+        return False
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Get award details
+        cur.execute(
+            """
+            SELECT amount, budget_personnel, budget_equipment, 
+                   budget_travel, budget_materials, personnel_json,
+                   domestic_travel_json, international_travel_json, materials_json
+            FROM awards
+            WHERE award_id = %s
+            """,
+            (award_id,)
+        )
+        award = cur.fetchone()
+        
+        if not award:
+            cur.close()
+            return False
+        
+        # Calculate budget by category from JSON data
+        categories = {}
+        
+        # Personnel
+        personnel = json.loads(award['personnel_json']) if award['personnel_json'] else []
+        personnel_total = 0
+        for p in personnel:
+            if isinstance(p, dict):
+                hours_list = p.get('hours', [])
+                if isinstance(hours_list, list):
+                    for h in hours_list:
+                        if isinstance(h, dict):
+                            hrs = float(h.get('hours', 0) or 0)
+                            # Assume $50/hour average (should come from cost_rates table later)
+                            personnel_total += hrs * 50
+        categories['Personnel'] = personnel_total
+        
+        # Travel
+        dom_travel = json.loads(award['domestic_travel_json']) if award['domestic_travel_json'] else []
+        intl_travel = json.loads(award['international_travel_json']) if award['international_travel_json'] else []
+        travel_total = 0
+        for t in dom_travel + intl_travel:
+            if isinstance(t, dict):
+                flight = float(t.get('flight', 0) or 0)
+                taxi = float(t.get('taxi', 0) or 0)
+                food = float(t.get('food', 0) or 0)
+                days = float(t.get('days', 0) or 0)
+                travel_total += flight + (taxi + food) * days
+        categories['Travel'] = travel_total
+        
+        # Materials
+        materials = json.loads(award['materials_json']) if award['materials_json'] else []
+        materials_total = 0
+        for m in materials:
+            if isinstance(m, dict):
+                cost = float(m.get('cost', 0) or 0)
+                materials_total += cost
+        categories['Materials'] = materials_total
+        
+        # Equipment (from budget_equipment field)
+        categories['Equipment'] = float(award['budget_equipment'] or 0)
+        
+        # Other (remaining from total)
+        total_allocated = sum(categories.values())
+        total_award = float(award['amount'] or 0)
+        categories['Other'] = max(0, total_award - total_allocated)
+        
+        # Insert/update budget_lines
+        for category, amount in categories.items():
+            if amount > 0:
+                # Check if exists
+                cur.execute(
+                    """
+                    SELECT line_id FROM budget_lines
+                    WHERE award_id = %s AND category = %s
+                    """,
+                    (award_id, category)
+                )
+                exists = cur.fetchone()
+                
+                if exists:
+                    # Update
+                    cur.execute(
+                        """
+                        UPDATE budget_lines
+                        SET allocated_amount = %s
+                        WHERE award_id = %s AND category = %s
+                        """,
+                        (amount, award_id, category)
+                    )
+                else:
+                    # Insert
+                    cur.execute(
+                        """
+                        INSERT INTO budget_lines (award_id, category, allocated_amount, spent_amount, committed_amount)
+                        VALUES (%s, %s, %s, 0, 0)
+                        """,
+                        (award_id, category, amount)
+                    )
+        
+        conn.commit()
+        cur.close()
+        return True
+        
+    except Exception as e:
+        print(f"Initialize budget lines error: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+
+@app.route("/transactions/new")
+def transaction_new():
+    """Show form to create a new transaction."""
+    u = session.get("user")
+    if not u:
+        return redirect(url_for("home"))
+    
+    award_id = request.args.get("award_id", type=int)
+    if not award_id:
+        return redirect(url_for("dashboard"))
+    
+    # Get award details
+    conn = get_db()
+    award = None
+    if conn is not None:
+        try:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(
+                """
+                SELECT award_id, title, amount, status
+                FROM awards
+                WHERE award_id = %s AND (created_by_email = %s OR %s = 'Admin')
+                """,
+                (award_id, u["email"], u["role"])
+            )
+            award = cur.fetchone()
+            cur.close()
+        except Exception as e:
+            print(f"DB fetch award error: {e}")
+        finally:
+            conn.close()
+    
+    if not award:
+        return "Award not found", 404
+    
+    if award['status'] != 'Approved':
+        return "Only approved awards can have transactions", 400
+    
+    # Get budget status
+    budget_status = get_budget_status(award_id)
+    
+    return render_template("transaction_new.html", award=award, budget_status=budget_status, user=u)
+
+
+@app.route("/transactions", methods=["POST"])
+def transaction_create():
+    """Create a new transaction."""
+    u = session.get("user")
+    if not u:
+        return redirect(url_for("home"))
+    
+    award_id = request.form.get("award_id", type=int)
+    category = request.form.get("category", "").strip()
+    description = request.form.get("description", "").strip()
+    amount = request.form.get("amount", "").strip()
+    date_submitted = request.form.get("date_submitted", "").strip()
+    
+    if not award_id or not category or not description or not amount or not date_submitted:
+        return make_response("Missing required fields", 400)
+    
+    try:
+        amount_val = float(amount)
+        if amount_val <= 0:
+            return make_response("Amount must be positive", 400)
+    except ValueError:
+        return make_response("Invalid amount", 400)
+    
+    conn = get_db()
+    if conn is None:
+        return make_response("DB connection failed", 500)
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Verify award exists and is approved
+        cur.execute(
+            """
+            SELECT award_id, status, created_by_email
+            FROM awards
+            WHERE award_id = %s
+            """,
+            (award_id,)
+        )
+        award = cur.fetchone()
+        
+        if not award:
+            return "Award not found", 404
+        
+        if award['status'] != 'Approved':
+            return "Only approved awards can have transactions", 400
+        
+        # Check permissions
+        if u["role"] != "Admin" and award['created_by_email'] != u["email"]:
+            return "Unauthorized", 403
+        
+        # Get user_id
+        cur.execute("SELECT user_id FROM users WHERE email = %s", (u["email"],))
+        user_row = cur.fetchone()
+        user_id = user_row['user_id'] if user_row else None
+        
+        # Check budget availability
+        budget_status = get_budget_status(award_id)
+        cat_budget = budget_status.get(category, {})
+        remaining = cat_budget.get('remaining', 0)
+        
+        if amount_val > remaining:
+            return make_response(f"Insufficient budget. Remaining: ${remaining:,.2f}", 400)
+        
+        # Insert transaction
+        cur.execute(
+            """
+            INSERT INTO transactions (award_id, user_id, category, description, amount, date_submitted, status)
+            VALUES (%s, %s, %s, %s, %s, %s, 'Pending')
+            RETURNING transaction_id
+            """,
+            (award_id, user_id, category, description, amount_val, date_submitted)
+        )
+        transaction_id = cur.fetchone()['transaction_id']
+        
+        # Update committed amount in budget_lines
+        # Check if budget line exists
+        cur.execute(
+            """
+            SELECT line_id FROM budget_lines
+            WHERE award_id = %s AND category = %s
+            """,
+            (award_id, category)
+        )
+        exists = cur.fetchone()
+        
+        if exists:
+            cur.execute(
+                """
+                UPDATE budget_lines
+                SET committed_amount = committed_amount + %s
+                WHERE award_id = %s AND category = %s
+                """,
+                (amount_val, award_id, category)
+            )
+        else:
+            # Create budget line if it doesn't exist
+            cur.execute(
+                """
+                INSERT INTO budget_lines (award_id, category, allocated_amount, spent_amount, committed_amount)
+                VALUES (%s, %s, 0, 0, %s)
+                """,
+                (award_id, category, amount_val)
+            )
+        
+        conn.commit()
+        cur.close()
+        
+    except Exception as e:
+        print(f"DB create transaction error: {e}")
+        conn.rollback()
+        return make_response("Transaction creation failed", 500)
+    finally:
+        conn.close()
+    
+    return redirect(url_for("transactions_list", award_id=award_id))
+
+
+@app.route("/transactions")
+def transactions_list():
+    """List all transactions for an award or user."""
+    u = session.get("user")
+    if not u:
+        return redirect(url_for("home"))
+    
+    award_id = request.args.get("award_id", type=int)
+    
+    conn = get_db()
+    transactions = []
+    award = None
+    
+    if conn is not None:
+        try:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            
+            if award_id:
+                # Get transactions for specific award
+                cur.execute(
+                    """
+                    SELECT t.*, a.title as award_title, u.name as user_name
+                    FROM transactions t
+                    LEFT JOIN awards a ON t.award_id = a.award_id
+                    LEFT JOIN users u ON t.user_id = u.user_id
+                    WHERE t.award_id = %s
+                    ORDER BY t.date_submitted DESC, t.transaction_id DESC
+                    """,
+                    (award_id,)
+                )
+                transactions = cur.fetchall()
+                
+                # Get award details
+                cur.execute("SELECT * FROM awards WHERE award_id = %s", (award_id,))
+                award = cur.fetchone()
+            else:
+                # Get all transactions for user
+                if u["role"] == "Admin":
+                    cur.execute(
+                        """
+                        SELECT t.*, a.title as award_title, u.name as user_name
+                        FROM transactions t
+                        LEFT JOIN awards a ON t.award_id = a.award_id
+                        LEFT JOIN users u ON t.user_id = u.user_id
+                        ORDER BY t.date_submitted DESC, t.transaction_id DESC
+                        """
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT t.*, a.title as award_title, u.name as user_name
+                        FROM transactions t
+                        LEFT JOIN awards a ON t.award_id = a.award_id
+                        LEFT JOIN users u ON t.user_id = u.user_id
+                        WHERE a.created_by_email = %s
+                        ORDER BY t.date_submitted DESC, t.transaction_id DESC
+                        """,
+                        (u["email"],)
+                    )
+                transactions = cur.fetchall()
+            
+            cur.close()
+        except Exception as e:
+            print(f"DB fetch transactions error: {e}")
+        finally:
+            conn.close()
+    
+    return render_template("transactions_list.html", transactions=transactions, award=award, user=u)
+
+
+@app.route("/awards/<int:award_id>/budget")
+def budget_status(award_id):
+    """Show budget status dashboard for an award."""
+    u = session.get("user")
+    if not u:
+        return redirect(url_for("home"))
+    
+    conn = get_db()
+    award = None
+    budget_status_data = {}
+    
+    if conn is not None:
+        try:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(
+                """
+                SELECT * FROM awards
+                WHERE award_id = %s AND (created_by_email = %s OR %s = 'Admin')
+                """,
+                (award_id, u["email"], u["role"])
+            )
+            award = cur.fetchone()
+            cur.close()
+        except Exception as e:
+            print(f"DB fetch award error: {e}")
+        finally:
+            conn.close()
+    
+    if not award:
+        return "Award not found", 404
+    
+    # Initialize budget lines if award is approved and lines don't exist
+    if award['status'] == 'Approved':
+        conn = get_db()
+        if conn is not None:
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT COUNT(*) FROM budget_lines WHERE award_id = %s",
+                    (award_id,)
+                )
+                count = cur.fetchone()[0]
+                cur.close()
+                
+                if count == 0:
+                    initialize_budget_lines(award_id)
+            except Exception as e:
+                print(f"Budget initialization check error: {e}")
+            finally:
+                conn.close()
+    
+    budget_status_data = get_budget_status(award_id)
+    
+    # Calculate totals
+    totals = {
+        'allocated': sum(cat.get('allocated', 0) for cat in budget_status_data.values()),
+        'spent': sum(cat.get('spent', 0) for cat in budget_status_data.values()),
+        'committed': sum(cat.get('committed', 0) for cat in budget_status_data.values()),
+        'remaining': sum(cat.get('remaining', 0) for cat in budget_status_data.values()),
+    }
+    
+    return render_template(
+        "budget_status.html",
+        award=award,
+        budget_status=budget_status_data,
+        totals=totals,
+        user=u
+    )
+
+
+@app.route("/transactions/<int:transaction_id>/approve", methods=["POST"])
+def transaction_approve(transaction_id):
+    """Approve a transaction (Admin/Finance only)."""
+    u = session.get("user")
+    if not u or u.get("role") not in ("Admin", "Finance"):
+        return redirect(url_for("home"))
+    
+    conn = get_db()
+    if conn is None:
+        return make_response("DB connection failed", 500)
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Get transaction details
+        cur.execute(
+            """
+            SELECT t.*, a.status as award_status
+            FROM transactions t
+            JOIN awards a ON t.award_id = a.award_id
+            WHERE t.transaction_id = %s
+            """,
+            (transaction_id,)
+        )
+        txn = cur.fetchone()
+        
+        if not txn:
+            return "Transaction not found", 404
+        
+        if txn['status'] != 'Pending':
+            return "Transaction already processed", 400
+        
+        if txn['award_status'] != 'Approved':
+            return "Award must be approved", 400
+        
+        # Update transaction status
+        cur.execute(
+            "UPDATE transactions SET status = 'Approved' WHERE transaction_id = %s",
+            (transaction_id,)
+        )
+        
+        # Move from committed to spent in budget_lines
+        cur.execute(
+            """
+            UPDATE budget_lines
+            SET committed_amount = committed_amount - %s,
+                spent_amount = spent_amount + %s
+            WHERE award_id = %s AND category = %s
+            """,
+            (txn['amount'], txn['amount'], txn['award_id'], txn['category'])
+        )
+        
+        conn.commit()
+        cur.close()
+        
+    except Exception as e:
+        print(f"DB approve transaction error: {e}")
+        conn.rollback()
+        return make_response("Approve failed", 500)
+    finally:
+        conn.close()
+    
+    return redirect(url_for("transactions_list", award_id=txn['award_id']))
+
+
+@app.route("/transactions/<int:transaction_id>/decline", methods=["POST"])
+def transaction_decline(transaction_id):
+    """Decline a transaction (Admin/Finance only)."""
+    u = session.get("user")
+    if not u or u.get("role") not in ("Admin", "Finance"):
+        return redirect(url_for("home"))
+    
+    conn = get_db()
+    if conn is None:
+        return make_response("DB connection failed", 500)
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Get transaction details
+        cur.execute(
+            "SELECT * FROM transactions WHERE transaction_id = %s",
+            (transaction_id,)
+        )
+        txn = cur.fetchone()
+        
+        if not txn:
+            return "Transaction not found", 404
+        
+        if txn['status'] != 'Pending':
+            return "Transaction already processed", 400
+        
+        award_id = txn['award_id']
+        
+        # Update transaction status
+        cur.execute(
+            "UPDATE transactions SET status = 'Declined' WHERE transaction_id = %s",
+            (transaction_id,)
+        )
+        
+        # Remove from committed amount in budget_lines
+        cur.execute(
+            """
+            UPDATE budget_lines
+            SET committed_amount = committed_amount - %s
+            WHERE award_id = %s AND category = %s
+            """,
+            (txn['amount'], award_id, txn['category'])
+        )
+        
+        conn.commit()
+        cur.close()
+        
+    except Exception as e:
+        print(f"DB decline transaction error: {e}")
+        conn.rollback()
+        return make_response("Decline failed", 500)
+    finally:
+        conn.close()
+    
+    return redirect(url_for("transactions_list", award_id=award_id))
 
 
 @app.route("/settings")

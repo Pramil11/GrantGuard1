@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Transactions - GrantGuard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <img src="{{ url_for('static', filename='assets/GrandGuard.png') }}" alt="GrantGuard logo" class="logo-img" />
+        <span class="brand-text">GrantGuard</span>
+      </div>
+      <nav class="menu">
+        <a href="/dashboard">Dashboard</a>
+        <a href="/awards/new">Generate Grants</a>
+        <a href="/policies/university">Policies</a>
+        <a href="/subawards">Subawards</a>
+        <a href="/settings">Settings</a>
+        <a href="/profile">Profile</a>
+        <a href="/logout">Log out</a>
+      </nav>
+    </aside>
+    <main class="content">
+      <header style="margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-start;">
+        <div>
+          <h1 style="margin: 0; font-size: 1.75em; font-weight: 700; color: var(--gg-text-main);">Transactions</h1>
+          {% if award %}
+          <p style="margin: 8px 0 0 0; font-size: 0.875em; color: #6b7280;">Award: {{ award.title }}</p>
+          {% endif %}
+        </div>
+        {% if award %}
+        <div style="display: flex; gap: 12px;">
+          <a href="{{ url_for('transaction_new', award_id=award.award_id) }}" class="btn">New Transaction</a>
+          <a href="{{ url_for('budget_status', award_id=award.award_id) }}" class="btn" style="background: #6b7280;">Budget Status</a>
+        </div>
+        {% endif %}
+      </header>
+
+      {% if transactions %}
+      <div class="card">
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Category</th>
+              <th>Description</th>
+              <th>Amount</th>
+              <th>Status</th>
+              {% if user.role in ('Admin', 'Finance') %}
+              <th>Actions</th>
+              {% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for txn in transactions %}
+            <tr>
+              <td>{{ txn.date_submitted }}</td>
+              <td>{{ txn.category }}</td>
+              <td style="max-width: 300px;">{{ txn.description }}</td>
+              <td style="font-weight: 600; color: #0b84f3;">${{ '{:,.2f}'.format(txn.amount) }}</td>
+              <td>
+                <span class="status-badge status-{{ txn.status.lower() }}">{{ txn.status }}</span>
+              </td>
+              {% if user.role in ('Admin', 'Finance') and txn.status == 'Pending' %}
+              <td>
+                <form method="POST" action="{{ url_for('transaction_approve', transaction_id=txn.transaction_id) }}" style="display: inline;">
+                  <button type="submit" class="btn-small-success">Approve</button>
+                </form>
+                <form method="POST" action="{{ url_for('transaction_decline', transaction_id=txn.transaction_id) }}" style="display: inline;">
+                  <button type="submit" class="btn-small-danger">Decline</button>
+                </form>
+              </td>
+              {% elif user.role in ('Admin', 'Finance') %}
+              <td>—</td>
+              {% endif %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="card">
+        <div style="text-align: center; padding: 60px 20px;">
+          <p style="margin: 0 0 20px 0; font-size: 1em; color: #6b7280;">No transactions yet.</p>
+          {% if award %}
+          <a href="{{ url_for('transaction_new', award_id=award.award_id) }}" class="btn">Create First Transaction</a>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+    </main>
+  </div>
+  <script src="{{ url_for('static', filename='theme.js') }}"></script>
+</body>
+</html>

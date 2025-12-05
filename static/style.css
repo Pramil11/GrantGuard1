@@ -300,6 +300,11 @@ footer {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  will-change: auto;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  contain: layout style paint;
+  isolation: isolate;
 }
 
 .sidebar-header {
@@ -329,6 +334,15 @@ footer {
   flex-direction: column;
   gap: 6px;
   font-family: "Poppins", sans-serif !important;
+  will-change: auto;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  contain: layout style paint;
+}
+
+.menu a {
+  contain: layout style paint !important;
+  isolation: isolate !important;
 }
 
 /* Force all menu items to have identical styling - no exceptions */
@@ -336,20 +350,14 @@ footer {
 .menu a,
 .menu a:link,
 .menu a:visited,
-.menu a:hover,
 .menu a:active,
-.menu a:focus,
-.menu a.active,
-.menu a.active:link,
-.menu a.active:visited,
-.menu a.active:hover,
-.menu a.active:active,
-.menu a.active:focus {
+.menu a:focus {
   text-decoration: none !important;
   color: rgba(255, 255, 255, 0.95) !important;
   padding: 10px 12px !important;
   border-radius: 10px !important;
-  transition: background 0.2s ease !important;
+  background: transparent !important;
+  transition: none !important;
   font-family: "Poppins", sans-serif !important;
   font-size: 1em !important;
   font-weight: 500 !important;
@@ -365,22 +373,51 @@ footer {
   text-rendering: optimizeLegibility !important;
   font-feature-settings: normal !important;
   font-kerning: auto !important;
+  will-change: auto !important;
+  backface-visibility: hidden !important;
+  transform: translateZ(0) !important;
+  contain: layout style paint !important;
+  isolation: isolate !important;
 }
 
 .menu a:hover {
   background: rgba(255, 255, 255, 0.15) !important;
-  /* Keep font exactly the same on hover */
+  color: rgba(255, 255, 255, 0.95) !important;
+  transition: none !important;
   font-family: "Poppins", sans-serif !important;
   font-size: 1em !important;
   font-weight: 500 !important;
 }
 
-.menu a.active {
+.menu a.active,
+.menu a.active:link,
+.menu a.active:visited,
+.menu a.active:active,
+.menu a.active:focus {
   background: rgba(255, 255, 255, 0.25) !important;
-  /* Keep font exactly the same when active */
+  color: rgba(255, 255, 255, 0.95) !important;
+  transition: none !important;
   font-family: "Poppins", sans-serif !important;
   font-size: 1em !important;
   font-weight: 500 !important;
+}
+
+.menu a.active:hover {
+  background: rgba(255, 255, 255, 0.25) !important;
+  color: rgba(255, 255, 255, 0.95) !important;
+  transition: none !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 1em !important;
+  font-weight: 500 !important;
+}
+
+/* Prevent flash by ensuring all states are explicitly defined */
+.menu a:not(.active):not(:hover) {
+  background: transparent !important;
+}
+
+body.theme-dark .menu a:not(.active):not(:hover) {
+  background: transparent !important;
 }
 
 .content {
@@ -756,16 +793,10 @@ body.theme-dark .card {
 body.theme-dark .menu a,
 body.theme-dark .menu a:link,
 body.theme-dark .menu a:visited,
-body.theme-dark .menu a:hover,
 body.theme-dark .menu a:active,
-body.theme-dark .menu a:focus,
-body.theme-dark .menu a.active,
-body.theme-dark .menu a.active:link,
-body.theme-dark .menu a.active:visited,
-body.theme-dark .menu a.active:hover,
-body.theme-dark .menu a.active:active,
-body.theme-dark .menu a.active:focus {
+body.theme-dark .menu a:focus {
   color: #e5e7eb !important;
+  background: transparent !important;
   font-family: "Poppins", sans-serif !important;
   font-size: 1em !important;
   font-weight: 500 !important;
@@ -776,14 +807,65 @@ body.theme-dark .menu a.active:focus {
   letter-spacing: 0 !important;
   font-feature-settings: normal !important;
   font-kerning: auto !important;
+  transition: none !important;
+  will-change: auto !important;
+  backface-visibility: hidden !important;
+  transform: translateZ(0) !important;
+  contain: layout style paint !important;
+  isolation: isolate !important;
+}
+
+body.theme-dark .menu a:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #e5e7eb !important;
+  transition: none !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 1em !important;
+  font-weight: 500 !important;
+}
+
+body.theme-dark .menu a.active,
+body.theme-dark .menu a.active:link,
+body.theme-dark .menu a.active:visited,
+body.theme-dark .menu a.active:active,
+body.theme-dark .menu a.active:focus {
+  background: rgba(59, 130, 246, 0.25) !important;
+  color: #e5e7eb !important;
+  transition: none !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 1em !important;
+  font-weight: 500 !important;
+}
+
+body.theme-dark .menu a.active:hover {
+  background: rgba(59, 130, 246, 0.25) !important;
+  color: #e5e7eb !important;
+  transition: none !important;
+  font-family: "Poppins", sans-serif !important;
+  font-size: 1em !important;
+  font-weight: 500 !important;
+}
+
+/* Force explicit background on all menu items to prevent flash */
+.menu a {
+  background-color: transparent !important;
+  opacity: 1 !important;
+}
+
+body.theme-dark .menu a {
+  background-color: transparent !important;
+  opacity: 1 !important;
+}
+
+/* Ensure active state has highest specificity and no delay */
+.menu a.active {
+  background: rgba(255, 255, 255, 0.25) !important;
+  opacity: 1 !important;
 }
 
 body.theme-dark .menu a.active {
   background: rgba(59, 130, 246, 0.25) !important;
-  /* Keep font exactly the same when active in dark mode */
-  font-family: "Poppins", sans-serif !important;
-  font-size: 1em !important;
-  font-weight: 500 !important;
+  opacity: 1 !important;
 }
 
 /* Dark theme for content area */
@@ -2045,6 +2127,32 @@ body.theme-dark .status-submitted {
 body.theme-dark .status-rejected {
   background: rgba(239, 68, 68, 0.2);
   color: #ef4444;
+}
+
+/* Transaction and Budget Status Pages Dark Mode */
+body.theme-dark .back-link {
+  color: #60a5fa;
+}
+
+body.theme-dark .back-link:hover {
+  color: #93c5fd;
+}
+
+body.theme-dark select {
+  background: #1e293b;
+  border-color: #1f2937;
+  color: var(--gg-text-main);
+}
+
+body.theme-dark select:focus {
+  border-color: #3b82f6;
+  background: #1e293b;
+}
+
+body.theme-dark .stat-value[style*="color: #10b981"],
+body.theme-dark .stat-value[style*="color: #f59e0b"],
+body.theme-dark .stat-value[style*="color: #0b84f3"] {
+  /* Keep original colors in dark mode for better visibility */
 }
 
 body.theme-dark .text-muted {
