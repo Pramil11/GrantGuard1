@@ -321,7 +321,7 @@ def awards_new():
 def _get_award_for_export(award_id, user):
     """
     Load a single award plus JSON budget fields and return:
-    award, personnel, domestic_travel, international_travel, materials
+    award, personnel, domestic_travel, international_travel, materials, equpiment, other_direct
     """
     conn = get_db()
     if conn is None:
@@ -365,8 +365,10 @@ def _get_award_for_export(award_id, user):
     domestic_travel = parse_json("domestic_travel_json")
     international_travel = parse_json("international_travel_json")
     materials = parse_json("materials_json")
+    equipment = json.loads(award.get("equipment_json") or "[]")
+    other_direct = json.loads(award.get("other_direct_json") or "[]")
 
-    return award, personnel, domestic_travel, international_travel, materials
+    return award, personnel, domestic_travel, international_travel, materials, equipment, other_direct 
 
 def _parse_json_field(field_value):
     """Helper: safely parse a JSON array field from the form."""
@@ -644,6 +646,8 @@ def award_view(award_id):
     domestic_travel = parse_json("domestic_travel_json")
     international_travel = parse_json("international_travel_json")
     materials = parse_json("materials_json")
+    equipment = json.loads(award.get("equipment_json") or "[]")
+    other_direct = json.loads(award.get("other_direct_json") or "[]")
 
     # --- Compute period & year list for tables ---
     start = award.get("start_date")
@@ -685,7 +689,7 @@ def download_award_pdf(award_id):
     if not u:
         return redirect(url_for("home"))
 
-    award, personnel, domestic_travel, international_travel, materials = _get_award_for_export(award_id, u)
+    award, personnel, domestic_travel, international_travel, materials, equipment, other_direct = _get_award_for_export(award_id, u)
     if not award:
         return "Award not found", 404
 
@@ -704,15 +708,10 @@ def download_award_pdf(award_id):
     def travel_row(travel_type, t):
         return [
             travel_type,
-            t.get("year"),
-            t.get("travel_name") or t.get("name") or "",
             t.get("description") or "",
-            t.get("start_date") or t.get("depart") or "",
-            t.get("end_date") or t.get("arrive") or "",
             t.get("flight_cost") or t.get("flight") or "",
             t.get("taxi_per_day") or "",
             t.get("food_lodge_per_day") or t.get("food_per_day") or "",
-            t.get("days") or t.get("num_days") or "",
         ]
 
     # -------- basic fields ----------
@@ -805,9 +804,9 @@ def download_award_pdf(award_id):
         elements.append(Paragraph("Travel Information", styles["Heading3"]))
         data = [
             [
-                "Type", "Year", "Name", "Description",
-                "Departure", "Arrival", "Flight Cost",
-                "Taxi/Day", "Food & Lodge/Day", "Days",
+                "Type", "Description",
+                "Flight Cost",
+                "Taxi/Day", "Food & Lodge/Day",
             ]
         ]
         for t_dom in domestic_travel:
@@ -829,11 +828,9 @@ def download_award_pdf(award_id):
     # -------- Materials table ----------
     if materials:
         elements.append(Paragraph("Materials and Supplies", styles["Heading3"]))
-        data = [["Category", "Year", "Description", "Cost"]]
+        data = [["Description", "Cost"]]
         for m in materials:
             data.append([
-                m.get("material_type") or m.get("category") or "",
-                m.get("year") or "",
                 m.get("description") or "",
                 m.get("cost") or "",
             ])
@@ -847,7 +844,46 @@ def download_award_pdf(award_id):
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ]))
         elements.append(t)
+        # -------- Equipment ----------
+    if equipment:
+        elements.append(Paragraph("Equipment", styles["Heading3"]))
+        data = [["Description", "Cost"]]
 
+        for e in equipment:
+            data.append([
+                e.get("description") or "",
+                e.get("cost") or "",
+            ])
+
+        t = Table(data, repeatRows=1)
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E0E0E0")),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        elements.append(t)    
+    # -------- Other Direct Costs ----------
+    if other_direct:
+        elements.append(Paragraph("Other Direct Costs", styles["Heading3"]))
+        data = [["Description", "Cost"]]
+
+        for d in other_direct:
+            data.append([
+                d.get("description") or "",
+                d.get("cost") or "",
+            ])
+
+        t = Table(data, repeatRows=1)
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E0E0E0")),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        elements.append(t)
     # Build PDF
     doc.build(elements)
     buffer.seek(0)
@@ -864,7 +900,7 @@ def download_award_excel(award_id):
     if not u:
         return redirect(url_for("home"))
 
-    award, personnel, domestic_travel, international_travel, materials = _get_award_for_export(award_id, u)
+    award, personnel, domestic_travel, international_travel, materials, equipment, other_direct = _get_award_for_export(award_id, u)
     if not award:
         return "Award not found", 404
 
@@ -969,9 +1005,9 @@ def download_award_excel(award_id):
         ws.cell(row=row, column=1, value="Travel").font = bold
         row += 1
         headers = [
-            "Type", "Year", "Name", "Description",
-            "Departure", "Arrival", "Flight Cost",
-            "Taxi/Day", "Food & Lodge/Day", "Days"
+            "Type", "Description",
+            "Flight Cost",
+            "Taxi/Day", "Food & Lodge/Day",
         ]
         for col, h in enumerate(headers, start=1):
             cell = ws.cell(row=row, column=col, value=h)
@@ -985,15 +1021,10 @@ def download_award_excel(award_id):
             nonlocal row
             cols = [
                 travel_type,
-                t.get("year"),
-                t.get("travel_name") or t.get("name") or "",
                 t.get("description") or "",
-                t.get("start_date") or t.get("depart") or "",
-                t.get("end_date") or t.get("arrive") or "",
                 t.get("flight_cost") or t.get("flight") or "",
                 t.get("taxi_per_day") or "",
                 t.get("food_lodge_per_day") or t.get("food_per_day") or "",
-                t.get("days") or t.get("num_days") or "",
             ]
             for col, val in enumerate(cols, start=1):
                 cell = ws.cell(row=row, column=col, value=val)
@@ -1010,7 +1041,7 @@ def download_award_excel(award_id):
     if materials:
         ws.cell(row=row, column=1, value="Materials and Supplies").font = bold
         row += 1
-        headers = ["Category", "Year", "Description", "Cost"]
+        headers = ["Description", "Cost"]
         for col, h in enumerate(headers, start=1):
             cell = ws.cell(row=row, column=col, value=h)
             cell.font = bold
@@ -1021,8 +1052,6 @@ def download_award_excel(award_id):
 
         for m in materials:
             cols = [
-                m.get("material_type") or m.get("category") or "",
-                m.get("year"),
                 m.get("description") or "",
                 m.get("cost") or "",
             ]
@@ -1030,7 +1059,44 @@ def download_award_excel(award_id):
                 cell = ws.cell(row=row, column=col, value=val)
                 cell.border = border
             row += 1
+    # Equipment section
+    if equipment:
+        row += 2
+        ws.cell(row=row, column=1, value="Equipment").font = bold
+        row += 1
+        headers = ["Description", "Cost"]
 
+        for col, h in enumerate(headers, start=1):
+            cell = ws.cell(row=row, column=col, value=h)
+            cell.font = bold
+            cell.fill = header_fill
+            cell.alignment = center
+            cell.border = border
+        row += 1
+
+        for e in equipment:
+            ws.cell(row=row, column=1, value=e.get("description") or "").border = border
+            ws.cell(row=row, column=2, value=e.get("cost") or "").border = border
+            row += 1
+    # Other Direct Costs
+    if other_direct:
+        row += 2
+        ws.cell(row=row, column=1, value="Other Direct Costs").font = bold
+        row += 1
+        headers = ["Description", "Cost"]
+
+        for col, h in enumerate(headers, start=1):
+            cell = ws.cell(row=row, column=col, value=h)
+            cell.font = bold
+            cell.fill = header_fill
+            cell.alignment = center
+            cell.border = border
+        row += 1
+
+        for d in other_direct:
+            ws.cell(row=row, column=1, value=d.get("description") or "").border = border
+            ws.cell(row=row, column=2, value=d.get("cost") or "").border = border
+            row += 1
     # Save to memory and return
     bio = BytesIO()
     wb.save(bio)
