@@ -156,44 +156,29 @@
             <thead>
               <tr>
                 <th>Type</th>
-                <th>Year</th>
-                <th>Name</th>
                 <th>Description</th>
-                <th>Departure</th>
-                <th>Arrival</th>
                 <th>Flight Cost</th>
                 <th>Taxi/Day</th>
                 <th>Food &amp; Lodge/Day</th>
-                <th>Days</th>
               </tr>
             </thead>
             <tbody>
             {% for t in domestic_travel %}
               <tr>
                 <td>Domestic</td>
-                <td>{{ t.year or 'N/A' }}</td>
-                <td>{{ t.name or 'N/A' }}</td>
                 <td>{{ t.description or 'N/A' }}</td>
-                <td>{{ t.depart or 'N/A' }}</td>
-                <td>{{ t.arrive or 'N/A' }}</td>
                 <td>${{ '%.2f'|format(t.flight or 0) }}</td>
                 <td>${{ '%.2f'|format(t.taxi_per_day or 0) }}</td>
                 <td>${{ '%.2f'|format(t.food_per_day or 0) }}</td>
-                <td>{{ t.days or 'N/A' }}</td>
               </tr>
             {% endfor %}
             {% for t in international_travel %}
               <tr>
                 <td>International</td>
-                <td>{{ t.year or 'N/A' }}</td>
-                <td>{{ t.name or 'N/A' }}</td>
                 <td>{{ t.description or 'N/A' }}</td>
-                <td>{{ t.depart or 'N/A' }}</td>
-                <td>{{ t.arrive or 'N/A' }}</td>
                 <td>${{ '%.2f'|format(t.flight or 0) }}</td>
                 <td>${{ '%.2f'|format(t.taxi_per_day or 0) }}</td>
                 <td>${{ '%.2f'|format(t.food_per_day or 0) }}</td>
-                <td>{{ t.days or 'N/A' }}</td>
               </tr>
             {% endfor %}
             </tbody>
@@ -212,8 +197,6 @@
           <table class="budget-table">
             <thead>
               <tr>
-                <th>Category</th>
-                <th>Year</th>
                 <th>Description</th>
                 <th>Cost</th>
               </tr>
@@ -221,8 +204,6 @@
             <tbody>
             {% for m in materials %}
               <tr>
-                <td>{{ m.category or 'N/A' }}</td>
-                <td>{{ m.year or 'N/A' }}</td>
                 <td>{{ m.description or 'N/A' }}</td>
                 <td>${{ '%.2f'|format(m.cost or 0) }}</td>
               </tr>
