@@ -106,6 +106,24 @@ document.addEventListener('DOMContentLoaded', function () {
       }
     });
 
+    // Travel year dropdowns (also used by materials section)
+    const travelYearSelects = document.querySelectorAll('.travel-year');
+    if (travelYearSelects.length) {
+      const years = getYearsInRange();
+      travelYearSelects.forEach(sel => {
+        const current = sel.value;
+        sel.innerHTML = '<option value="">Select Year</option>';
+        years.forEach(y => {
+          const opt = document.createElement('option');
+          opt.value = y;
+          opt.textContent = y;
+          sel.appendChild(opt);
+        });
+        if (current) sel.value = current;
+      });
+    }
+  }
+
   // Re-render hours when dates change
   if (startInput && endInput) {
     startInput.addEventListener('change', renderHoursPerYear);
@@ -201,6 +219,7 @@ document.addEventListener('DOMContentLoaded', function () {
       const clone = domesticTemplate.cloneNode(true);
       clearTravelBlock(clone);
       domesticList.appendChild(clone);
+      renderHoursPerYear();  // refresh year dropdowns
     });
 
     domesticList.addEventListener('click', (e) => {
@@ -216,6 +235,7 @@ document.addEventListener('DOMContentLoaded', function () {
       const clone = internationalTemplate.cloneNode(true);
       clearTravelBlock(clone);
       internationalList.appendChild(clone);
+      renderHoursPerYear();
     });
 
     internationalList.addEventListener('click', (e) => {
@@ -253,7 +273,8 @@ document.addEventListener('DOMContentLoaded', function () {
     addMaterialBtn.addEventListener('click', () => {
       const clone = materialTemplate.cloneNode(true);
       clearMaterialBlock(clone);
-      materialsList.appendChild(clone); 
+      materialsList.appendChild(clone);
+      renderHoursPerYear();   // to populate year dropdowns
     });
 
     materialsList.addEventListener('click', (e) => {
@@ -313,20 +334,29 @@ document.addEventListener('DOMContentLoaded', function () {
       // DOMESTIC TRAVEL JSON
       const domesticTrips = [];
       document.querySelectorAll('#domestic-travel-list .travel-item').forEach(item => {
+        const name  = item.querySelector('input[name="domestic_travel_name[]"]')?.value || '';
         const desc  = item.querySelector('textarea[name="domestic_travel_desc[]"]')?.value || '';
+        const year  = item.querySelector('select[name="domestic_travel_year[]"]')?.value || '';
+        const dep   = item.querySelector('input[name="domestic_travel_depart[]"]')?.value || '';
+        const arr   = item.querySelector('input[name="domestic_travel_arrive[]"]')?.value || '';
         const flt   = item.querySelector('input[name="domestic_travel_flight[]"]')?.value || '';
         const taxi  = item.querySelector('input[name="domestic_travel_taxi[]"]')?.value || '';
         const food  = item.querySelector('input[name="domestic_travel_food[]"]')?.value || '';
+        const days  = item.querySelector('input[name="domestic_travel_days[]"]')?.value || '';
 
-
-        const allEmpty = !desc && !flt && !taxi && !food;
+        const allEmpty = !name && !desc && !year && !dep && !arr && !flt && !taxi && !food && !days;
         if (allEmpty) return;
 
         domesticTrips.push({
+          name,
           description: desc,
+          year,
+          depart: dep,
+          arrive: arr,
           flight: flt  ? parseFloat(flt)  : null,
           taxi_per_day: taxi ? parseFloat(taxi) : null,
           food_per_day: food ? parseFloat(food) : null,
+          days: days ? parseFloat(days) : null
         });
       });
 
@@ -336,19 +366,29 @@ document.addEventListener('DOMContentLoaded', function () {
       // INTERNATIONAL TRAVEL JSON
       const intlTrips = [];
       document.querySelectorAll('#international-travel-list .travel-item').forEach(item => {
+        const name  = item.querySelector('input[name="international_travel_name[]"]')?.value || '';
         const desc  = item.querySelector('textarea[name="international_travel_desc[]"]')?.value || '';
+        const year  = item.querySelector('select[name="international_travel_year[]"]')?.value || '';
+        const dep   = item.querySelector('input[name="international_travel_depart[]"]')?.value || '';
+        const arr   = item.querySelector('input[name="international_travel_arrive[]"]')?.value || '';
         const flt   = item.querySelector('input[name="international_travel_flight[]"]')?.value || '';
         const taxi  = item.querySelector('input[name="international_travel_taxi[]"]')?.value || '';
         const food  = item.querySelector('input[name="international_travel_food[]"]')?.value || '';
+        const days  = item.querySelector('input[name="international_travel_days[]"]')?.value || '';
 
-        const allEmpty = !desc && !flt && !taxi && !food;
+        const allEmpty = !name && !desc && !year && !dep && !arr && !flt && !taxi && !food && !days;
         if (allEmpty) return;
 
         intlTrips.push({
+          name,
           description: desc,
+          year,
+          depart: dep,
+          arrive: arr,
           flight: flt  ? parseFloat(flt)  : null,
           taxi_per_day: taxi ? parseFloat(taxi) : null,
           food_per_day: food ? parseFloat(food) : null,
+          days: days ? parseFloat(days) : null
         });
       });
 
@@ -358,42 +398,54 @@ document.addEventListener('DOMContentLoaded', function () {
       // MATERIALS JSON
       const materials = [];
       document.querySelectorAll('#materials-list .material-item').forEach(item => {
+        const category = item.querySelector('select[name="material_category[]"]')?.value || '';
         const cost     = item.querySelector('input[name="material_cost[]"]')?.value || '';
         const desc     = item.querySelector('textarea[name="material_desc[]"]')?.value || '';
+        const year     = item.querySelector('select[name="material_year[]"]')?.value || '';
 
-        if (!cost && !desc) return;
+        if (!category && !cost && !desc && !year) return;
 
         materials.push({
+          category,
           cost: cost ? parseFloat(cost) : null,
           description: desc,
+          year
         });
       });
 
       // Add equipment to materials array with type='equipment'
       document.querySelectorAll('#equipment-list .material-item').forEach(item => {
+        const category = item.querySelector('select[name="equipment_category[]"]')?.value || '';
         const cost     = item.querySelector('input[name="equipment_cost[]"]')?.value || '';
         const desc     = item.querySelector('textarea[name="equipment_desc[]"]')?.value || '';
+        const year     = item.querySelector('select[name="equipment_year[]"]')?.value || '';
 
-        if (!cost && !desc) return;
+        if (!category && !cost && !desc && !year) return;
 
         materials.push({
           type: 'equipment',
+          category,
           cost: cost ? parseFloat(cost) : null,
           description: desc,
+          year
         });
       });
 
       // Add other costs to materials array with type='other'
       document.querySelectorAll('#other-costs-list .material-item').forEach(item => {
+        const category = item.querySelector('select[name="other_cost_category[]"]')?.value || '';
         const cost     = item.querySelector('input[name="other_cost_amount[]"]')?.value || '';
         const desc     = item.querySelector('textarea[name="other_cost_desc[]"]')?.value || '';
+        const year     = item.querySelector('select[name="other_cost_year[]"]')?.value || '';
 
-        if (!cost && !desc) return;
+        if (!category && !cost && !desc && !year) return;
 
         materials.push({
           type: 'other',
+          category,
           cost: cost ? parseFloat(cost) : null,
           description: desc,
+          year
         });
       });
 
@@ -479,21 +531,53 @@ document.addEventListener('DOMContentLoaded', function () {
         const block = domesticTemplate.cloneNode(true);
         clearTravelBlock(block);
 
+        const nameInput   = block.querySelector('input[name="domestic_travel_name[]"]');
         const descArea    = block.querySelector('textarea[name="domestic_travel_desc[]"]');
+        const yearSelect  = block.querySelector('select[name="domestic_travel_year[]"]');
+        const departInput = block.querySelector('input[name="domestic_travel_depart[]"]');
+        const arriveInput = block.querySelector('input[name="domestic_travel_arrive[]"]');
         const flightInput = block.querySelector('input[name="domestic_travel_flight[]"]');
         const taxiInput   = block.querySelector('input[name="domestic_travel_taxi[]"]');
         const foodInput   = block.querySelector('input[name="domestic_travel_food[]"]');
+        const daysInput   = block.querySelector('input[name="domestic_travel_days[]"]');
+
+        const yearVal   = t.year != null ? String(t.year) : '';
+        const departVal = t.start_date || t.depart || '';
+        const arriveVal = t.end_date   || t.arrive || '';
         const flightVal = t.flight_cost || t.flight || '';
         const taxiVal   = t.taxi_per_day || '';
         const foodVal   = t.food_lodge_per_day || t.food_per_day || '';
+        const daysVal   = t.num_days || t.days || '';
 
+        if (nameInput)   nameInput.value   = t.travel_name || t.name || '';
         if (descArea)    descArea.value    = t.description || '';
+        if (departInput) departInput.value = departVal;
+        if (arriveInput) arriveInput.value = arriveVal;
         if (flightInput && flightVal !== '') flightInput.value = flightVal;
         if (taxiInput   && taxiVal   !== '') taxiInput.value   = taxiVal;
         if (foodInput   && foodVal   !== '') foodInput.value   = foodVal;
+        if (daysInput   && daysVal   !== '') daysInput.value   = daysVal;
 
         // append now; we will set year after renderHoursPerYear repopulates options
         domesticList.appendChild(block);
+
+        if (yearSelect && yearVal) {
+          yearSelect.value = yearVal;
+        }
+      });
+
+      // repopulate year dropdown options
+      renderHoursPerYear();
+
+      // now set the year values again to be safe
+      const items = domesticList.querySelectorAll('.travel-item');
+      items.forEach((block, idx) => {
+        const t = window.INIT_DOM_TRAVEL[idx];
+        if (!t) return;
+        const yearSelect = block.querySelector('select[name="domestic_travel_year[]"]');
+        if (yearSelect && t.year != null) {
+          yearSelect.value = String(t.year);
+        }
       });
     }
 
@@ -509,24 +593,53 @@ document.addEventListener('DOMContentLoaded', function () {
         const block = internationalTemplate.cloneNode(true);
         clearTravelBlock(block);
 
+        const nameInput   = block.querySelector('input[name="international_travel_name[]"]');
         const descArea    = block.querySelector('textarea[name="international_travel_desc[]"]');
+        const yearSelect  = block.querySelector('select[name="international_travel_year[]"]');
+        const departInput = block.querySelector('input[name="international_travel_depart[]"]');
+        const arriveInput = block.querySelector('input[name="international_travel_arrive[]"]');
         const flightInput = block.querySelector('input[name="international_travel_flight[]"]');
         const taxiInput   = block.querySelector('input[name="international_travel_taxi[]"]');
         const foodInput   = block.querySelector('input[name="international_travel_food[]"]');
+        const daysInput   = block.querySelector('input[name="international_travel_days[]"]');
 
+        const yearVal   = t.year != null ? String(t.year) : '';
+        const departVal = t.start_date || t.depart || '';
+        const arriveVal = t.end_date   || t.arrive || '';
         const flightVal = t.flight_cost || t.flight || '';
         const taxiVal   = t.taxi_per_day || '';
         const foodVal   = t.food_lodge_per_day || t.food_per_day || '';
+        const daysVal   = t.num_days || t.days || '';
 
+        if (nameInput)   nameInput.value   = t.travel_name || t.name || '';
         if (descArea)    descArea.value    = t.description || '';
+        if (departInput) departInput.value = departVal;
+        if (arriveInput) arriveInput.value = arriveVal;
         if (flightInput && flightVal !== '') flightInput.value = flightVal;
         if (taxiInput   && taxiVal   !== '') taxiInput.value   = taxiVal;
         if (foodInput   && foodVal   !== '') foodInput.value   = foodVal;
+        if (daysInput   && daysVal   !== '') daysInput.value   = daysVal;
 
         internationalList.appendChild(block);
 
+        if (yearSelect && yearVal) {
+          yearSelect.value = yearVal;
+        }
+      });
+
+      renderHoursPerYear();
+
+      const items = internationalList.querySelectorAll('.travel-item');
+      items.forEach((block, idx) => {
+        const t = window.INIT_INTL_TRAVEL[idx];
+        if (!t) return;
+        const yearSelect = block.querySelector('select[name="international_travel_year[]"]');
+        if (yearSelect && t.year != null) {
+          yearSelect.value = String(t.year);
+        }
       });
     }
+
     // ---------- 4) MATERIALS, EQUIPMENT, OTHER COSTS ----------
     // Separate materials by type
     const materialsOnly = [];
@@ -552,16 +665,26 @@ document.addEventListener('DOMContentLoaded', function () {
         const block = materialTemplate.cloneNode(true);
         clearMaterialBlock(block);
 
+        const catSelect = block.querySelector('select[name="material_category[]"]');
         const costInput = block.querySelector('input[name="material_cost[]"]');
         const descArea  = block.querySelector('textarea[name="material_desc[]"]');
+        const yearSelect= block.querySelector('select[name="material_year[]"]');
 
+        const catVal  = m.material_type || m.category || '';
         const costVal = m.cost != null ? m.cost : '';
+        const yearVal = m.year != null ? String(m.year) : '';
 
+        if (catSelect) catSelect.value = catVal;
         if (costInput && costVal !== '') costInput.value = costVal;
         if (descArea)  descArea.value  = m.description || '';
 
         materialsList.appendChild(block);
+
+        if (yearSelect && yearVal) {
+          yearSelect.value = yearVal;
+        }
       });
+      renderHoursPerYear();
     }
 
     // Equipment
@@ -570,16 +693,27 @@ document.addEventListener('DOMContentLoaded', function () {
       equipmentOnly.forEach((e) => {
         const block = equipmentTemplate.cloneNode(true);
         clearMaterialBlock(block);
+
+        const catSelect = block.querySelector('select[name="equipment_category[]"]');
         const costInput = block.querySelector('input[name="equipment_cost[]"]');
         const descArea  = block.querySelector('textarea[name="equipment_desc[]"]');
+        const yearSelect= block.querySelector('select[name="equipment_year[]"]');
 
+        const catVal  = e.category || '';
         const costVal = e.cost != null ? e.cost : '';
+        const yearVal = e.year != null ? String(e.year) : '';
 
+        if (catSelect) catSelect.value = catVal;
         if (costInput && costVal !== '') costInput.value = costVal;
         if (descArea)  descArea.value  = e.description || '';
 
         equipmentList.appendChild(block);
+
+        if (yearSelect && yearVal) {
+          yearSelect.value = yearVal;
+        }
       });
+      renderHoursPerYear();
     }
 
     // Other Costs
@@ -589,16 +723,26 @@ document.addEventListener('DOMContentLoaded', function () {
         const block = otherCostTemplate.cloneNode(true);
         clearMaterialBlock(block);
 
+        const catSelect = block.querySelector('select[name="other_cost_category[]"]');
         const costInput = block.querySelector('input[name="other_cost_amount[]"]');
-        const descArea  = block.querySelector('textarea[name="other_cost_desc[]"]');;
+        const descArea  = block.querySelector('textarea[name="other_cost_desc[]"]');
+        const yearSelect= block.querySelector('select[name="other_cost_year[]"]');
 
+        const catVal  = o.category || '';
         const costVal = o.cost != null ? o.cost : '';
+        const yearVal = o.year != null ? String(o.year) : '';
+
+        if (catSelect) catSelect.value = catVal;
         if (costInput && costVal !== '') costInput.value = costVal;
         if (descArea)  descArea.value  = o.description || '';
 
         otherCostsList.appendChild(block);
 
+        if (yearSelect && yearVal) {
+          yearSelect.value = yearVal;
+        }
       });
+      renderHoursPerYear();
     }
   }
 
