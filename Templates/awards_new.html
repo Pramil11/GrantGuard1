@@ -191,28 +191,10 @@
           <div id="domestic-travel-list" class="travel-list">
             <div class="travel-item">
               <div class="travel-row">
-                <input type="text"
-                       name="domestic_travel_name[]"
-                       class="travel-name"
-                       placeholder="Travel Name">
                 <textarea name="domestic_travel_desc[]"
                           class="travel-desc"
                           placeholder="Description & Research Purpose *"
                           required></textarea>
-                <select name="domestic_travel_year[]"
-                        class="travel-year">
-                  <option value="">Select Year</option>
-                </select>
-                <input type="date"
-                       name="domestic_travel_depart[]"
-                       class="travel-depart"
-                       placeholder="Depart">
-                <input type="date"
-                       name="domestic_travel_arrive[]"
-                       class="travel-arrive"
-                       placeholder="Arrive">
-                <button type="button"
-                        class="travel-remove">✕</button>
               </div>
               <div class="travel-row">
                 <input type="number"
@@ -227,10 +209,6 @@
                        name="domestic_travel_food[]"
                        class="travel-food"
                        placeholder="Food & Lodge $/day">
-                <input type="number"
-                       name="domestic_travel_days[]"
-                       class="travel-days"
-                       placeholder="Days">
               </div>
             </div>
           </div>
@@ -243,28 +221,10 @@
           <div id="international-travel-list" class="travel-list">
             <div class="travel-item">
               <div class="travel-row">
-                <input type="text"
-                       name="international_travel_name[]"
-                       class="travel-name"
-                       placeholder="Travel Name">
                 <textarea name="international_travel_desc[]"
                           class="travel-desc"
                           placeholder="Description & Research Purpose *"
                           required></textarea>
-                <select name="international_travel_year[]"
-                        class="travel-year">
-                  <option value="">Select Year</option>
-                </select>
-                <input type="date"
-                       name="international_travel_depart[]"
-                       class="travel-depart"
-                       placeholder="Depart">
-                <input type="date"
-                       name="international_travel_arrive[]"
-                       class="travel-arrive"
-                       placeholder="Arrive">
-                <button type="button"
-                        class="travel-remove">✕</button>
               </div>
               <div class="travel-row">
                 <input type="number"
@@ -279,10 +239,6 @@
                        name="international_travel_food[]"
                        class="travel-food"
                        placeholder="Food & Lodge $/day">
-                <input type="number"
-                       name="international_travel_days[]"
-                       class="travel-days"
-                       placeholder="Days">
               </div>
             </div>
           </div>
@@ -299,15 +255,6 @@
           <div id="equipment-list" class="materials-list">
             <div class="material-item"
                  style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
-              <select name="equipment_category[]"
-                      class="material-category mat-type"
-                      style="min-width:220px; flex:1;">
-                <option value="">Select Equipment Type *</option>
-                <option>Equipment &gt; $5,000 (Requires Approval)</option>
-                <option>Equipment &lt; $5,000</option>
-                <option>Equipment Repair/Maintenance</option>
-              </select>
-
               <input type="number"
                      name="equipment_cost[]"
                      class="mat-cost"
@@ -321,13 +268,6 @@
                         placeholder="Equipment Description & Justification *"
                         required
                         style="flex:2; min-width:220px; min-height:40px;"></textarea>
-
-              <select name="equipment_year[]"
-                      class="travel-year mat-year"
-                      style="flex:0.7; min-width:120px;">
-                <option value="">Select Year</option>
-              </select>
-
               <button type="button"
                       class="material-remove"
                       style="border:none; background:none; color:#d9534f;
@@ -350,17 +290,6 @@
           <div id="materials-list" class="materials-list">
             <div class="material-item"
                  style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
-              <select name="material_category[]"
-                      class="material-category mat-type"
-                      style="min-width:220px; flex:1;">
-                <option value="">Select Category *</option>
-                <option>Lab Consumables</option>
-                <option>Chemicals & Reagents</option>
-                <option>Computing Accessories</option>
-                <option>Research Supplies</option>
-                <option>Other Materials</option>
-              </select>
-
               <input type="number"
                      name="material_cost[]"
                      class="mat-cost"
@@ -374,13 +303,6 @@
                         placeholder="Description & Justification *"
                         required
                         style="flex:2; min-width:220px; min-height:40px;"></textarea>
-
-              <select name="material_year[]"
-                      class="travel-year mat-year"
-                      style="flex:0.7; min-width:120px;">
-                <option value="">Select Year</option>
-              </select>
-
               <button type="button"
                       class="material-remove"
                       style="border:none; background:none; color:#d9534f;
@@ -403,20 +325,6 @@
           <div id="other-costs-list" class="materials-list">
             <div class="material-item"
                  style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
-              <select name="other_cost_category[]"
-                      class="material-category mat-type"
-                      style="min-width:220px; flex:1;">
-                <option value="">Select Cost Type *</option>
-                <option>Publication Costs</option>
-                <option>Software License</option>
-                <option>Computer Services</option>
-                <option>Facility Usage Fees</option>
-                <option>Conference Registration</option>
-                <option>Participant Incentives</option>
-                <option>Graduate Student Tuition & Health Insurance</option>
-                <option>Other Direct Cost</option>
-              </select>
-
               <input type="number"
                      name="other_cost_amount[]"
                      class="mat-cost"
@@ -430,13 +338,6 @@
                         placeholder="Description & Justification *"
                         required
                         style="flex:2; min-width:220px; min-height:40px;"></textarea>
-
-              <select name="other_cost_year[]"
-                      class="travel-year mat-year"
-                      style="flex:0.7; min-width:120px;">
-                <option value="">Select Year</option>
-              </select>
-
               <button type="button"
                       class="material-remove"
                       style="border:none; background:none; color:#d9534f;
