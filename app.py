@@ -2701,7 +2701,7 @@ def profile():
     conn = get_db()
     if conn is not None:
         try:
-            cur = conn.cursor(dictionary=True)
+            cur = conn.cursor(cursor_factory=RealDictCursor)
             cur.execute(
                 """
                 SELECT award_id, title, sponsor_type, amount, start_date, end_date, status, created_at
@@ -2719,9 +2719,13 @@ def profile():
             conn.close()
     stats = {
         "total_awards": len(awards),
-        "active_awards": sum(1 for a in awards if (a.get("status") or "").lower() == "active"),
+        "active_awards": sum(
+            1 for a in awards
+            if (a.get("status") or "").lower() == "approved"
+        ),
         "latest_award": awards[0] if awards else None,
     }
+
     return render_template("profile.html", user=u, awards=awards, stats=stats)
 
 
