@@ -60,11 +60,13 @@ Not Allowed:
 - Business/first-class travel (except disability accommodation).
 - Charging vacation time as grant travel.
 - Using non-U.S. carriers without Fly America exception.
+- International travel descriptions that do not explicitly mention "Fly America Act".
 
 Rules:
 - Travel must clearly benefit the project scientifically.
 - Fly America exceptions must be documented before reimbursement.
 - Travel expenses exceeding $5,000 per trip require prior approval.
+- For international travel, the description MUST explicitly mention "Fly America Act" to demonstrate compliance. If the description does not contain "Fly America Act", the travel request is non-compliant.
 
 Violations:
 - Booking a foreign airline without exemption documentation.

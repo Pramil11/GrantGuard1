@@ -57,11 +57,13 @@ Allowed:
 Not Allowed:
 - Personal or recreational travel.
 - Travel for individuals not working on the project.
+- International travel descriptions that do not explicitly mention "Fly America Act".
 
 Sponsor Rules:
 - NSF requires travel justification tied to project outcomes.
 - DoD may require pre-trip security briefings.
 - Travel expenses exceeding $5,000 per trip require prior approval.
+- For international travel, the description MUST explicitly mention "Fly America Act" to demonstrate compliance. If the description does not contain "Fly America Act", the travel request is non-compliant.
 
 Violations:
 - Charging flight costs for family members.

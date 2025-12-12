@@ -1876,77 +1876,141 @@ def award_decline(award_id):
 
 @app.route("/subawards")
 def subawards():
-    """List all subawards for the user."""
+    """List all subawards for the user, or show award selection if multiple approved awards."""
     u = session.get("user")
     if not u:
         return redirect(url_for("home"))
     
     conn = get_db()
-    subawards_list = []
-    awards_map = {}
+    approved_awards = []
     
     if conn is not None:
         try:
             cur = conn.cursor(cursor_factory=RealDictCursor)
             
+            # Get approved awards for the user
             if u["role"] == "Admin":
-                # Admin sees all subawards
                 cur.execute(
                     """
-                    SELECT s.*, a.title as award_title, a.status as award_status
-                    FROM subawards s
-                    LEFT JOIN awards a ON s.award_id = a.award_id
-                    ORDER BY s.created_at DESC
+                    SELECT award_id, title, amount, status, start_date, end_date
+                    FROM awards
+                    WHERE status = 'Approved'
+                    ORDER BY title
                     """
                 )
             else:
-                # PI sees only subawards for their awards
                 cur.execute(
                     """
-                    SELECT s.*, a.title as award_title, a.status as award_status
-                    FROM subawards s
-                    INNER JOIN awards a ON s.award_id = a.award_id
-                    WHERE a.created_by_email = %s
-                    ORDER BY s.created_at DESC
+                    SELECT award_id, title, amount, status, start_date, end_date
+                    FROM awards
+                    WHERE status = 'Approved' AND created_by_email = %s
+                    ORDER BY title
                     """,
                     (u["email"],)
                 )
-            subawards_list = cur.fetchall()
+            approved_awards = cur.fetchall()
             # Convert amounts to float for template rendering
+            for award in approved_awards:
+                if award.get('amount'):
+                    award['amount'] = float(award['amount'])
+            
+            # For non-admin users: if only one award, redirect to award-specific page
+            if u["role"] != "Admin" and len(approved_awards) == 1:
+                cur.close()
+                conn.close()
+                return redirect(url_for("subawards_by_award", award_id=approved_awards[0]['award_id']))
+            
+            cur.close()
+        except psycopg2_errors.UndefinedTable:
+            approved_awards = []
+        except Exception as e:
+            print(f"DB fetch awards error: {e}")
+            approved_awards = []
+        finally:
+            conn.close()
+    
+    # If no approved awards, show empty state
+    if not approved_awards:
+        return render_template("subawards.html", approved_awards=[], user=u, show_award_selection=True)
+    
+    # Show award selection page
+    return render_template("subawards.html", approved_awards=approved_awards, user=u, show_award_selection=True)
+
+
+@app.route("/subawards/award/<int:award_id>")
+def subawards_by_award(award_id):
+    """Show subawards for a specific award."""
+    u = session.get("user")
+    if not u:
+        return redirect(url_for("home"))
+    
+    conn = get_db()
+    award = None
+    subawards_list = []
+    
+    if conn is not None:
+        try:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            
+            # Get award details
+            if u["role"] == "Admin":
+                cur.execute(
+                    """
+                    SELECT award_id, title, amount, status, start_date, end_date, created_by_email
+                    FROM awards
+                    WHERE award_id = %s AND status = 'Approved'
+                    """,
+                    (award_id,)
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT award_id, title, amount, status, start_date, end_date, created_by_email
+                    FROM awards
+                    WHERE award_id = %s AND status = 'Approved' AND created_by_email = %s
+                    """,
+                    (award_id, u["email"])
+                )
+            award = cur.fetchone()
+            
+            if not award:
+                cur.close()
+                conn.close()
+                return "Award not found or not approved", 404
+            
+            # Convert amount to float
+            if award.get('amount'):
+                award['amount'] = float(award['amount'])
+            
+            # Get subawards for this award
+            cur.execute(
+                """
+                SELECT s.*, a.title as award_title
+                FROM subawards s
+                LEFT JOIN awards a ON s.award_id = a.award_id
+                WHERE s.award_id = %s
+                ORDER BY s.created_at DESC
+                """,
+                (award_id,)
+            )
+            subawards_list = cur.fetchall()
+            # Convert amounts to float
             for sub in subawards_list:
                 if sub.get('amount'):
                     sub['amount'] = float(sub['amount'])
             
-            # Get available awards for creating new subawards
-            cur.execute(
-                """
-                SELECT award_id, title, amount, status
-                FROM awards
-                WHERE status = 'Approved'
-                ORDER BY title
-                """
-            )
-            awards = cur.fetchall()
-            # Convert amounts to float for template rendering
-            for award in awards:
-                if award.get('amount'):
-                    award['amount'] = float(award['amount'])
-            awards_map = {a['award_id']: a for a in awards}
-            
             cur.close()
-        except psycopg2_errors.UndefinedTable:
-            # Tables don't exist - just show empty list, no error message
-            subawards_list = []
-            awards_map = {}
         except Exception as e:
-            print(f"DB fetch subawards error: {e}")
-            # Return empty list on error
+            print(f"DB fetch error: {e}")
+            award = None
             subawards_list = []
-            awards_map = {}
         finally:
             conn.close()
     
-    return render_template("subawards.html", subawards=subawards_list, awards_map=awards_map, user=u)
+    if not award:
+        return "Award not found", 404
+    
+    return render_template("subawards_by_award.html", award=award, subawards=subawards_list, user=u)
 
 
 @app.route("/subawards/new")
@@ -2137,7 +2201,8 @@ def subaward_create():
         if conn:
             conn.close()
     
-    return redirect(url_for("subaward_view", subaward_id=subaward_id))
+    # Redirect to award-specific subawards page
+    return redirect(url_for("subawards_by_award", award_id=award_id))
 
 
 @app.route("/subawards/<int:subaward_id>")
@@ -2307,13 +2372,16 @@ def subaward_approve(subaward_id):
     
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        # Check if subaward exists
+        # Get award_id from subaward before approving
         cur.execute(
-            "SELECT subaward_id FROM subawards WHERE subaward_id = %s",
+            "SELECT award_id FROM subawards WHERE subaward_id = %s",
             (subaward_id,)
         )
-        if not cur.fetchone():
+        subaward = cur.fetchone()
+        if not subaward:
             return "Subaward not found", 404
+        
+        award_id = subaward['award_id']
         
         cur.execute(
             "UPDATE subawards SET status = 'Approved' WHERE subaward_id = %s",
@@ -2328,7 +2396,8 @@ def subaward_approve(subaward_id):
     finally:
         conn.close()
     
-    return redirect(url_for("subaward_view", subaward_id=subaward_id))
+    # Redirect to award-specific subawards page
+    return redirect(url_for("subawards_by_award", award_id=award_id))
 
 
 @app.route("/subawards/<int:subaward_id>/delete", methods=["POST"])
@@ -2342,13 +2411,14 @@ def subaward_delete(subaward_id):
     if conn is None:
         return make_response("DB connection failed", 500)
     
+    award_id = None
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        
-        # Check permissions
+
+        # Get award_id and check permissions
         cur.execute(
             """
-            SELECT s.*, a.created_by_email as award_owner
+            SELECT s.*, a.created_by_email as award_owner, s.award_id
             FROM subawards s
             LEFT JOIN awards a ON s.award_id = a.award_id
             WHERE s.subaward_id = %s
@@ -2359,6 +2429,8 @@ def subaward_delete(subaward_id):
         
         if not subaward:
             return "Subaward not found", 404
+        
+        award_id = subaward['award_id']
         
         if u["role"] != "Admin" and subaward['created_by_email'] != u["email"] and subaward.get('award_owner') != u["email"]:
             return "Unauthorized", 403
@@ -2374,7 +2446,8 @@ def subaward_delete(subaward_id):
     finally:
         conn.close()
     
-    return redirect(url_for("subawards"))
+    # Redirect to award-specific subawards page
+    return redirect(url_for("subawards_by_award", award_id=award_id))
 
 
 # ========== TRANSACTION SYSTEM ==========
@@ -3934,6 +4007,24 @@ WRONG: "Materials total $8,500 exceeds $5,000 threshold" ❌
 RIGHT: "Each materials item is checked individually. Item X costs $6,200 which exceeds $5,000 per item threshold" ✅
 
 ═══════════════════════════════════════════════════════════════════════════════
+CRITICAL RULE: INTERNATIONAL TRAVEL MUST MENTION "FLY AMERICA ACT"
+═══════════════════════════════════════════════════════════════════════════════
+
+For ALL international travel entries:
+- The description field MUST explicitly contain the text "Fly America Act" (case-insensitive).
+- If an international travel description does NOT contain "Fly America Act", the award is NON-COMPLIANT.
+- This is a mandatory requirement - if "Fly America Act" is missing from the description, the travel request violates policy.
+- Check each international travel entry individually - if ANY international travel entry lacks "Fly America Act" in its description, the award is non-compliant.
+
+Example of compliant international travel description:
+- "Attending conference in Paris. Fly America Act compliance confirmed."
+- "Research collaboration in Tokyo following Fly America Act requirements."
+
+Example of NON-COMPLIANT international travel description:
+- "Attending conference in Paris" (missing Fly America Act mention)
+- "Research collaboration in Tokyo" (missing Fly America Act mention)
+
+═══════════════════════════════════════════════════════════════════════════════
 
 POLICY TEXT:
 {policy_text}
@@ -3953,6 +4044,7 @@ Analyze the award against the {name} policy above. Provide a comprehensive, huma
    - If you have 1 materials item costing $6,000, it is NON-COMPLIANT (exceeds $5,000 per item)
    - Do NOT add up all items in a category and check the total - check EACH item separately
    - Equipment total and Materials total are separate - do NOT combine them
+8. MANDATORY: For international travel, check that each description explicitly contains "Fly America Act" (case-insensitive). If ANY international travel entry lacks "Fly America Act" in its description, the award is NON-COMPLIANT. This is a mandatory requirement - missing "Fly America Act" means the travel request violates policy.
 
 Your output must be a JSON object in this exact format:
 {{
@@ -3960,9 +4052,9 @@ Your output must be a JSON object in this exact format:
   "reason": "Comprehensive explanation that reads naturally, explains policy compliance, references specific policy sections, and explains why the award follows or violates policy requirements. Write as if explaining to a colleague, not just listing thresholds."
 }}
 
-Example of good explanation for compliant: "This award complies with {name} policy requirements. The personnel expenses are within acceptable limits per person per year as specified in Section 1, and all listed personnel directly contribute to project aims. Travel expenses follow policy guidelines for research-related travel and do not exceed per-trip thresholds. Each equipment item is individually checked and all are under the $8,000 per item threshold. Each materials item is individually checked and all are under the $5,000 per item threshold. The award follows all applicable rules and does not violate any policy restrictions."
+Example of good explanation for compliant: "This award complies with {name} policy requirements. The personnel expenses are within acceptable limits per person per year as specified in Section 1, and all listed personnel directly contribute to project aims. Travel expenses follow policy guidelines for research-related travel and do not exceed per-trip thresholds. All international travel entries explicitly mention 'Fly America Act' in their descriptions, demonstrating compliance with federal travel requirements. Each equipment item is individually checked and all are under the $8,000 per item threshold. Each materials item is individually checked and all are under the $5,000 per item threshold. The award follows all applicable rules and does not violate any policy restrictions."
 
-Example of good explanation for non-compliant: "This award violates {name} policy in Section 2 (Equipment). One equipment item (High-Performance Workstation) costs $9,500, which exceeds the $8,000 per item threshold without prior approval as required by policy. Note: This is checked per item, not by total equipment budget. Additionally, one materials item (Specialized Reagents) costs $6,200, which exceeds the $5,000 per item threshold in Section 4. These violations must be addressed before approval."
+Example of good explanation for non-compliant: "This award violates {name} policy in Section 3 (Travel). The international travel entry for 'Conference in Paris' does not mention 'Fly America Act' in its description, which is a mandatory requirement for all international travel as specified in the policy. International travel must explicitly reference Fly America Act compliance in the description to demonstrate adherence to federal travel regulations. Additionally, one equipment item (High-Performance Workstation) costs $9,500, which exceeds the $8,000 per item threshold without prior approval as required by policy. Note: This is checked per item, not by total equipment budget. These violations must be addressed before approval."
 
 Only return the JSON object, nothing else."""
 

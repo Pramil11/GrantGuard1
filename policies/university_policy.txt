@@ -53,9 +53,11 @@ Not Allowed:
 - First-class or business-class travel.
 - Personal vacation time charged to the grant.
 - Alcohol.
+- International travel descriptions that do not explicitly mention "Fly America Act".
 
 Rules:
 - Travel expenses exceeding $5,000 per trip require prior approval.
+- For international travel, the description MUST explicitly mention "Fly America Act" to demonstrate compliance. If the description does not contain "Fly America Act", the travel request is non-compliant.
 
 Violations:
 - Charging a hotel for extra personal days.

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Subawards - {{ award.title }} - GrantGuard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <img src="{{ url_for('static', filename='assets/GrandGuard.png') }}" alt="GrantGuard logo" class="logo-img" />
+        <span class="brand-text">GrantGuard</span>
+      </div>
+      <nav class="menu">
+        <a href="/dashboard">Dashboard</a>
+        {% if user.role != 'Admin' %}
+        <a href="/awards/new">Generate Grants</a>
+        {% endif %}
+        <a href="/policies/university">Policies</a>
+        <a class="active" href="/subawards">Subawards</a>
+        <a href="/settings">Settings</a>
+        <a href="/profile">Profile</a>
+        <a href="/logout">Log out</a>
+      </nav>
+    </aside>
+    <main class="content">
+      <header style="margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-start;">
+        <div>
+          <a class="back-link" href="{{ url_for('subawards') }}">← Back to Awards</a>
+          <h1 style="margin: 8px 0 0 0; font-size: 1.75em; font-weight: 700; color: var(--gg-text-main);">Subawards</h1>
+          <p style="margin: 8px 0 0 0; font-size: 0.875em; color: #6b7280;">Award: {{ award.title }}</p>
+        </div>
+        {% if user.role != 'Admin' %}
+        <a href="{{ url_for('subaward_new', award_id=award.award_id) }}" class="btn">Create New Subaward</a>
+        {% endif %}
+      </header>
+
+      <!-- Award Summary Card -->
+      <div class="card" style="margin-bottom: 24px; background: #f9fafb; border-left: 4px solid #0b84f3;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+          <div>
+            <div style="font-size: 0.8125em; color: #6b7280; margin-bottom: 4px;">Award Amount</div>
+            <div style="font-size: 1.25em; font-weight: 700; color: var(--gg-text-main);">${{ "{:,.2f}".format(award.amount or 0) }}</div>
+          </div>
+          {% if award.start_date and award.end_date %}
+          <div>
+            <div style="font-size: 0.8125em; color: #6b7280; margin-bottom: 4px;">Period</div>
+            <div style="font-size: 1em; font-weight: 600; color: var(--gg-text-main);">{{ award.start_date }} → {{ award.end_date }}</div>
+          </div>
+          {% endif %}
+          <div>
+            <div style="font-size: 0.8125em; color: #6b7280; margin-bottom: 4px;">Total Subawards</div>
+            <div style="font-size: 1em; font-weight: 600; color: var(--gg-text-main);">{{ subawards|length }}</div>
+          </div>
+        </div>
+      </div>
+
+      {% if subawards %}
+      <div class="card">
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>Subrecipient</th>
+              <th>Amount</th>
+              <th>Period</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for sub in subawards %}
+            <tr>
+              <td style="font-weight: 600;">{{ sub.subrecipient_name }}</td>
+              <td style="font-weight: 600; color: #0b84f3;">${{ "{:,.2f}".format(sub.amount or 0) }}</td>
+              <td>
+                {% if sub.start_date and sub.end_date %}
+                  {{ sub.start_date }} → {{ sub.end_date }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                <span class="status-badge status-{{ sub.status.lower() }}">{{ sub.status }}</span>
+              </td>
+              <td>
+                <a class="btn-small-info" href="{{ url_for('subaward_view', subaward_id=sub.subaward_id) }}">View</a>
+                {% if user.role == 'Admin' and sub.status == 'Pending' %}
+                <form method="POST" action="{{ url_for('subaward_approve', subaward_id=sub.subaward_id) }}" style="display: inline;">
+                  <button type="submit" class="btn-small-success">Approve</button>
+                </form>
+                {% endif %}
+                <form method="POST" action="{{ url_for('subaward_delete', subaward_id=sub.subaward_id) }}" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this subaward?');">
+                  <button type="submit" class="btn-small-danger">Delete</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="card">
+        <div style="text-align: center; padding: 60px 20px;">
+          <p style="margin: 0 0 20px 0; font-size: 1em; color: #6b7280;">No subawards for this award yet.</p>
+          {% if user.role != 'Admin' %}
+          <a href="{{ url_for('subaward_new', award_id=award.award_id) }}" class="btn">Create First Subaward</a>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+    </main>
+  </div>
+  <script src="{{ url_for('static', filename='theme.js') }}"></script>
+</body>
+</html>
