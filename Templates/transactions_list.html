@@ -69,18 +69,48 @@
               <td style="font-weight: 600; color: #0b84f3;">${{ '{:,.2f}'.format(txn.amount) }}</td>
               <td>
                 <span class="status-badge status-{{ txn.status.lower() }}">{{ txn.status }}</span>
+                {% if txn.status == 'Approved' and txn.compliance_notes %}
+                  {% set compliance = txn.compliance_notes|from_json %}
+                  {% if compliance and not compliance.error %}
+                    <br>
+                    <small style="color: {% if compliance.university and compliance.university.result == 'non-compliant' or compliance.federal and compliance.federal.result == 'non-compliant' or compliance.sponsor and compliance.sponsor.result == 'non-compliant' %}#ef4444{% elif compliance.university and compliance.university.result == 'compliant' and compliance.federal and compliance.federal.result == 'compliant' and compliance.sponsor and compliance.sponsor.result == 'compliant' %}#10b981{% else %}#6b7280{% endif %};">
+                      AI: {% if compliance.university and compliance.university.result == 'non-compliant' or compliance.federal and compliance.federal.result == 'non-compliant' or compliance.sponsor and compliance.sponsor.result == 'non-compliant' %}⚠ Non-Compliant{% elif compliance.university and compliance.university.result == 'compliant' and compliance.federal and compliance.federal.result == 'compliant' and compliance.sponsor and compliance.sponsor.result == 'compliant' %}✓ Compliant{% else %}Pending Review{% endif %}
+                    </small>
+                  {% endif %}
+                {% endif %}
               </td>
               {% if user.role in ('Admin', 'Finance') and txn.status == 'Pending' %}
               <td>
-                <form method="POST" action="{{ url_for('transaction_approve', transaction_id=txn.transaction_id) }}" style="display: inline;">
-                  <button type="submit" class="btn-small-success">Approve</button>
-                </form>
-                <form method="POST" action="{{ url_for('transaction_decline', transaction_id=txn.transaction_id) }}" style="display: inline;">
-                  <button type="submit" class="btn-small-danger">Decline</button>
+                <button class="btn-small-info check-compliance-btn" data-transaction-id="{{ txn.transaction_id }}" style="margin-bottom: 4px; width: 100%;">
+                  <span class="check-compliance-text-{{ txn.transaction_id }}">Check AI Compliance</span>
+                  <span class="check-compliance-loading-{{ txn.transaction_id }}" style="display:none;">Checking...</span>
+                </button>
+                <div id="compliance-section-{{ txn.transaction_id }}" style="display:none; margin-top: 8px; padding: 12px; background: #f9fafb; border-radius: 8px; border-left: 4px solid #6b7280;"></div>
+                <div style="display: flex; gap: 4px; margin-top: 4px;">
+                  <form method="POST" action="{{ url_for('transaction_approve', transaction_id=txn.transaction_id) }}" style="display: inline; flex: 1;">
+                    <button type="submit" class="btn-small-success" style="width: 100%;">Approve</button>
+                  </form>
+                  <form method="POST" action="{{ url_for('transaction_decline', transaction_id=txn.transaction_id) }}" style="display: inline; flex: 1;">
+                    <button type="submit" class="btn-small-danger" style="width: 100%;">Decline</button>
+                  </form>
+                </div>
+              </td>
+              {% elif user.role in ('Admin', 'Finance') and txn.status == 'Approved' %}
+              <td>
+                <form method="POST" action="{{ url_for('transaction_pay', transaction_id=txn.transaction_id) }}" style="display: inline;">
+                  <button type="submit" class="btn-small-success">Process Payment</button>
                 </form>
               </td>
               {% elif user.role in ('Admin', 'Finance') %}
-              <td>—</td>
+              <td>
+                {% if txn.status == 'Paid' %}
+                  <span style="color: #6b7280; font-size: 0.875em;">Payment Processed</span>
+                {% elif txn.status == 'Declined' %}
+                  <span style="color: #6b7280; font-size: 0.875em;">Transaction Declined</span>
+                {% else %}
+                  <span style="color: #6b7280; font-size: 0.875em;">No Actions Available</span>
+                {% endif %}
+              </td>
               {% endif %}
             </tr>
             {% endfor %}
@@ -100,5 +130,140 @@
     </main>
   </div>
   <script src="{{ url_for('static', filename='theme.js') }}"></script>
+  <script>
+    // Handle Check AI Compliance button clicks
+    document.querySelectorAll('.check-compliance-btn').forEach(btn => {
+      btn.addEventListener('click', function() {
+        const transactionId = this.getAttribute('data-transaction-id');
+        const textSpan = document.querySelector(`.check-compliance-text-${transactionId}`);
+        const loadingSpan = document.querySelector(`.check-compliance-loading-${transactionId}`);
+        const complianceSection = document.getElementById(`compliance-section-${transactionId}`);
+        
+        // Show loading state
+        textSpan.style.display = 'none';
+        loadingSpan.style.display = 'inline';
+        this.disabled = true;
+        this.style.opacity = '0.6';
+        
+        // Make API call
+        fetch(`/transactions/${transactionId}/check-compliance`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        })
+        .then(response => response.json())
+        .then(data => {
+          // Hide loading, show button again
+          textSpan.style.display = 'inline';
+          loadingSpan.style.display = 'none';
+          this.disabled = false;
+          this.style.opacity = '1';
+          
+          // Show compliance section
+          if (complianceSection) {
+            complianceSection.style.display = 'block';
+            
+            // Clear previous content
+            complianceSection.innerHTML = '<h4 style="margin: 0 0 12px 0; font-size: 1em; font-weight: 600;">AI Policy Compliance Check</h4>';
+            
+            if (data.error) {
+              complianceSection.innerHTML += `<p style="color: #ef4444; margin: 0;">Error: ${data.error}</p>`;
+              complianceSection.style.borderLeftColor = '#ef4444';
+              complianceSection.style.background = '#fef2f2';
+            } else {
+              let html = '';
+              
+              // University Policy
+              if (data.university) {
+                const result = data.university.result || 'unknown';
+                const reason = data.university.reason || 'No reason provided';
+                const color = result === 'compliant' ? '#10b981' : result === 'non-compliant' ? '#ef4444' : '#6b7280';
+                const bgColor = result === 'compliant' ? '#f0fdf4' : result === 'non-compliant' ? '#fef2f2' : '#f9fafb';
+                
+                html += `
+                  <div style="padding: 12px; border-radius: 8px; border-left: 4px solid ${color}; background: ${bgColor}; margin-bottom: 8px;">
+                    <strong>University Policy:</strong> 
+                    <span style="text-transform: capitalize; font-weight: 600; color: ${color};">
+                      ${result}
+                    </span>
+                    <p style="margin: 8px 0 0 0; color: #4b5563; font-size: 0.875em;">${reason}</p>
+                  </div>
+                `;
+              }
+              
+              // Federal Policy
+              if (data.federal) {
+                const result = data.federal.result || 'unknown';
+                const reason = data.federal.reason || 'No reason provided';
+                const color = result === 'compliant' ? '#10b981' : result === 'non-compliant' ? '#ef4444' : '#6b7280';
+                const bgColor = result === 'compliant' ? '#f0fdf4' : result === 'non-compliant' ? '#fef2f2' : '#f9fafb';
+                
+                html += `
+                  <div style="padding: 12px; border-radius: 8px; border-left: 4px solid ${color}; background: ${bgColor}; margin-bottom: 8px;">
+                    <strong>Federal Policy:</strong> 
+                    <span style="text-transform: capitalize; font-weight: 600; color: ${color};">
+                      ${result}
+                    </span>
+                    <p style="margin: 8px 0 0 0; color: #4b5563; font-size: 0.875em;">${reason}</p>
+                  </div>
+                `;
+              }
+              
+              // Sponsor Policy
+              if (data.sponsor) {
+                const result = data.sponsor.result || 'unknown';
+                const reason = data.sponsor.reason || 'No reason provided';
+                const color = result === 'compliant' ? '#10b981' : result === 'non-compliant' ? '#ef4444' : '#6b7280';
+                const bgColor = result === 'compliant' ? '#f0fdf4' : result === 'non-compliant' ? '#fef2f2' : '#f9fafb';
+                
+                html += `
+                  <div style="padding: 12px; border-radius: 8px; border-left: 4px solid ${color}; background: ${bgColor};">
+                    <strong>Sponsor Policy:</strong> 
+                    <span style="text-transform: capitalize; font-weight: 600; color: ${color};">
+                      ${result}
+                    </span>
+                    <p style="margin: 8px 0 0 0; color: #4b5563; font-size: 0.875em;">${reason}</p>
+                  </div>
+                `;
+              }
+              
+              complianceSection.innerHTML += html;
+              
+              // Update border color based on overall compliance
+              const hasNonCompliant = (data.university && data.university.result === 'non-compliant') ||
+                                     (data.federal && data.federal.result === 'non-compliant') ||
+                                     (data.sponsor && data.sponsor.result === 'non-compliant');
+              const allCompliant = (data.university && data.university.result === 'compliant') &&
+                                  (data.federal && data.federal.result === 'compliant') &&
+                                  (data.sponsor && data.sponsor.result === 'compliant');
+              
+              if (hasNonCompliant) {
+                complianceSection.style.borderLeftColor = '#ef4444';
+                complianceSection.style.background = '#fef2f2';
+              } else if (allCompliant) {
+                complianceSection.style.borderLeftColor = '#10b981';
+                complianceSection.style.background = '#f0fdf4';
+              }
+            }
+          }
+        })
+        .catch(error => {
+          console.error('Error checking compliance:', error);
+          textSpan.style.display = 'inline';
+          loadingSpan.style.display = 'none';
+          this.disabled = false;
+          this.style.opacity = '1';
+          
+          if (complianceSection) {
+            complianceSection.style.display = 'block';
+            complianceSection.innerHTML = '<p style="color: #ef4444; margin: 0;">Error checking compliance. Please try again.</p>';
+            complianceSection.style.borderLeftColor = '#ef4444';
+            complianceSection.style.background = '#fef2f2';
+          }
+        });
+      });
+    });
+  </script>
 </body>
 </html>

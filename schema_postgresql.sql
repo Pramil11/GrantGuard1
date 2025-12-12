@@ -77,8 +77,9 @@ CREATE TABLE IF NOT EXISTS transactions (
     amount DECIMAL(12,2),
     date_submitted DATE,
     status VARCHAR(20) DEFAULT 'Pending',
+    compliance_notes TEXT,
     CONSTRAINT transactions_status_check
-        CHECK (status IN ('Pending', 'Approved', 'Declined')),
+        CHECK (status IN ('Pending', 'Approved', 'Paid', 'Declined')),
     CONSTRAINT transactions_award_id_fkey FOREIGN KEY (award_id)
         REFERENCES awards(award_id) ON DELETE CASCADE,
     CONSTRAINT transactions_user_id_fkey FOREIGN KEY (user_id)
@@ -87,6 +88,20 @@ CREATE TABLE IF NOT EXISTS transactions (
 
 CREATE INDEX IF NOT EXISTS transactions_award_id_idx ON transactions(award_id);
 CREATE INDEX IF NOT EXISTS transactions_user_id_idx ON transactions(user_id);
+
+-- Add compliance_notes column if it doesn't exist
+ALTER TABLE transactions
+  ADD COLUMN IF NOT EXISTS compliance_notes TEXT;
+
+-- Update status constraint to include 'Paid' if it doesn't already
+-- Drop the old constraint if it exists
+ALTER TABLE transactions
+  DROP CONSTRAINT IF EXISTS transactions_status_check;
+
+-- Add the new constraint with 'Paid' status
+ALTER TABLE transactions
+  ADD CONSTRAINT transactions_status_check
+  CHECK (status IN ('Pending', 'Approved', 'Paid', 'Declined'));
 
 -- ======================
 -- BUDGET_LINES TABLE (generic)

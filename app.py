@@ -80,6 +80,72 @@ def get_db():
         return None
 
 
+def update_transactions_status_constraint():
+    """Update transactions table constraint to include 'Paid' status."""
+    conn = get_db()
+    if conn is None:
+        return False
+    
+    try:
+        cur = conn.cursor()
+        # Drop the old constraint if it exists
+        cur.execute("""
+            ALTER TABLE transactions
+            DROP CONSTRAINT IF EXISTS transactions_status_check
+        """)
+        # Add the new constraint with 'Paid' status
+        cur.execute("""
+            ALTER TABLE transactions
+            ADD CONSTRAINT transactions_status_check
+            CHECK (status IN ('Pending', 'Approved', 'Paid', 'Declined'))
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Error updating transactions status constraint: {e}")
+        if conn:
+            conn.rollback()
+            conn.close()
+        return False
+
+
+def update_transactions_status_constraint():
+    """Update transactions table constraint to include 'Paid' status."""
+    conn = get_db()
+    if conn is None:
+        return False
+    
+    try:
+        cur = conn.cursor()
+        # Drop the old constraint if it exists
+        cur.execute("""
+            ALTER TABLE transactions
+            DROP CONSTRAINT IF EXISTS transactions_status_check
+        """)
+        # Add the new constraint with 'Paid' status
+        cur.execute("""
+            ALTER TABLE transactions
+            ADD CONSTRAINT transactions_status_check
+            CHECK (status IN ('Pending', 'Approved', 'Paid', 'Declined'))
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("✓ Transactions status constraint updated to include 'Paid'")
+        return True
+    except Exception as e:
+        print(f"Error updating transactions status constraint: {e}")
+        if conn:
+            try:
+                conn.rollback()
+            except:
+                pass
+            conn.close()
+        return False
+
+
 def init_db_if_needed():
     """Initialize database schema if tables don't exist."""
     conn = get_db()
@@ -136,6 +202,9 @@ def init_db_if_needed():
         conn.rollback()
     finally:
         conn.close()
+    
+    # Update transactions status constraint after schema initialization
+    update_transactions_status_constraint()
 
 
 @app.route("/")
@@ -643,6 +712,20 @@ def award_view(award_id):
             return []
 
     personnel = parse_json("personnel_json")
+    # Ensure rate_per_hour and total are floats for display
+    for p in personnel:
+        if isinstance(p, dict):
+            if 'rate_per_hour' in p:
+                try:
+                    p['rate_per_hour'] = float(p['rate_per_hour'] or 0)
+                except (ValueError, TypeError):
+                    p['rate_per_hour'] = 0.0
+            if 'total' in p:
+                try:
+                    p['total'] = float(p['total'] or 0)
+                except (ValueError, TypeError):
+                    p['total'] = 0.0
+    
     domestic_travel = parse_json("domestic_travel_json")
     international_travel = parse_json("international_travel_json")
     materials = parse_json("materials_json")
@@ -1410,9 +1493,11 @@ def award_delete(award_id):
                 conn.close()
                 return make_response("Admins may only delete declined awards.", 403)
         else:
-            cur.close()
-            conn.close()
-            return redirect(url_for("dashboard"))
+                cur.close()
+                conn.close()
+                # Update transactions status constraint
+                update_transactions_status_constraint()
+                return redirect(url_for("dashboard"))
 
         # Perform delete
         cur.execute(
@@ -2128,19 +2213,25 @@ def get_budget_status(award_id):
             if cat not in categories:
                 categories[cat] = {'allocated': 0, 'spent': 0, 'committed': 0}
             
-            if status == 'Approved':
+            if status == 'Paid':
+                # Paid transactions are actual expenditures (spent)
                 categories[cat]['spent'] += amount
+            elif status == 'Approved':
+                # Approved transactions are committed obligations (not yet paid)
+                categories[cat]['committed'] += amount
             elif status == 'Pending':
+                # Pending transactions are NOT in committed - they're just requests
+                # They should be considered for budget availability check but not stored as committed
                 pending_by_category[cat] = pending_by_category.get(cat, 0) + amount
         
         # Calculate remaining
         for cat, vals in categories.items():
             pending_amt = pending_by_category.get(cat, 0.0)
-            # Committed = only pending transactions (future obligations, not yet paid)
-            # Spent = only approved transactions (already paid)
-            vals['committed'] = pending_amt
-            # Remaining = allocated - spent - committed (both reduce available budget)
-            vals['remaining'] = max(0, vals['allocated'] - vals['spent'] - vals['committed'])
+            # Committed = only approved transactions (obligations not yet paid)
+            # Spent = only paid transactions (actual expenditures)
+            # Pending transactions are NOT in committed, but should be considered for budget availability
+            # Remaining = allocated - spent - committed - pending (all reduce available budget for checking)
+            vals['remaining'] = max(0, vals['allocated'] - vals['spent'] - vals['committed'] - pending_amt)
         
         cur.close()
         return categories
@@ -2494,50 +2585,9 @@ def transaction_create():
         )
         transaction_id = cur.fetchone()['transaction_id']
         
-        # Use the mapped category for budget_lines update
-        # Check what categories exist in budget_lines
-        cur.execute(
-            """
-            SELECT category FROM budget_lines
-            WHERE award_id = %s
-            """,
-            (award_id,)
-        )
-        existing_categories = [row['category'] for row in cur.fetchall()]
-        
-        # If transaction is "Other" but "Other Direct Costs" exists, map it
-        if category == 'Other' and 'Other Direct Costs' in existing_categories:
-            category = 'Other Direct Costs'
-        
-        # Update committed amount in budget_lines using the mapped category
-        # Check if budget line exists
-        cur.execute(
-            """
-            SELECT line_id FROM budget_lines
-            WHERE award_id = %s AND category = %s
-            """,
-            (award_id, transaction_category)
-        )
-        exists = cur.fetchone()
-        
-        if exists:
-            cur.execute(
-                """
-                UPDATE budget_lines
-                SET committed_amount = committed_amount + %s
-                WHERE award_id = %s AND category = %s
-                """,
-                (amount_val, award_id, transaction_category)
-            )
-        else:
-            # Create budget line if it doesn't exist (for transactions without allocated budget)
-            cur.execute(
-                """
-                INSERT INTO budget_lines (award_id, category, allocated_amount, spent_amount, committed_amount)
-                VALUES (%s, %s, 0, 0, %s)
-                """,
-                (award_id, transaction_category, amount_val)
-            )
+        # Pending transactions should NOT be added to committed_amount
+        # They will be added to committed only when approved
+        # Budget check is done above, so we just insert the transaction
         
         conn.commit()
         cur.close()
@@ -2840,7 +2890,12 @@ def budget_status(award_id):
 
 @app.route("/transactions/<int:transaction_id>/approve", methods=["POST"])
 def transaction_approve(transaction_id):
-    """Approve a transaction (Admin/Finance only)."""
+    """Approve a transaction (Admin/Finance only).
+    
+    This moves the transaction from Pending to Approved status.
+    Approved transactions are in COMMITTED (not spent) until payment is processed.
+    Policy compliance is checked before approval.
+    """
     u = session.get("user")
     if not u or u.get("role") not in ("Admin", "Finance"):
         return redirect(url_for("home"))
@@ -2852,10 +2907,11 @@ def transaction_approve(transaction_id):
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Get transaction details
+        # Get transaction details with award info
         cur.execute(
             """
-            SELECT t.*, a.status as award_status
+            SELECT t.*, a.status as award_status, a.title, a.sponsor_type, a.amount as award_amount,
+                   a.start_date, a.end_date
             FROM transactions t
             JOIN awards a ON t.award_id = a.award_id
             WHERE t.transaction_id = %s
@@ -2873,10 +2929,34 @@ def transaction_approve(transaction_id):
         if txn['award_status'] != 'Approved':
             return "Award must be approved", 400
         
-        # Update transaction status
+        # Check policy compliance before approval
+        award_data = {
+            'title': txn.get('title', ''),
+            'sponsor_type': txn.get('sponsor_type', ''),
+            'amount': txn.get('award_amount', 0),
+            'start_date': txn.get('start_date', ''),
+            'end_date': txn.get('end_date', '')
+        }
+        compliance_results = check_transaction_compliance(txn, award_data)
+        
+        # Store compliance results as JSON
+        compliance_json = json.dumps(compliance_results)
+        
+        # Check if any policy is non-compliant
+        has_non_compliant = any(
+            result.get('result') == 'non-compliant' 
+            for result in compliance_results.values() 
+            if isinstance(result, dict)
+        )
+        
+        # Update transaction status to Approved and store compliance notes
         cur.execute(
-            "UPDATE transactions SET status = 'Approved' WHERE transaction_id = %s",
-            (transaction_id,)
+            """
+            UPDATE transactions 
+            SET status = 'Approved', compliance_notes = %s
+            WHERE transaction_id = %s
+            """,
+            (compliance_json, transaction_id)
         )
         
         # Map transaction category to budget category
@@ -2893,8 +2973,9 @@ def transaction_approve(transaction_id):
         if txn_category == 'Other' and 'Other Direct Costs' in existing_categories:
             txn_category = 'Other Direct Costs'
         
-        # Move from committed to spent in budget_lines
-        # First ensure budget line exists
+        # When approving, add the transaction to committed_amount
+        # Pending transactions are NOT in committed, only Approved transactions are
+        # Check if budget line exists
         cur.execute(
             """
             SELECT line_id FROM budget_lines
@@ -2908,11 +2989,129 @@ def transaction_approve(transaction_id):
             cur.execute(
                 """
                 UPDATE budget_lines
+                SET committed_amount = committed_amount + %s
+                WHERE award_id = %s AND category = %s
+                """,
+                (txn['amount'], txn['award_id'], txn_category)
+            )
+        else:
+            # Create budget line if it doesn't exist
+            cur.execute(
+                """
+                INSERT INTO budget_lines (award_id, category, allocated_amount, spent_amount, committed_amount)
+                VALUES (%s, %s, 0, 0, %s)
+                """,
+                (txn['award_id'], txn_category, txn['amount'])
+            )
+        
+        conn.commit()
+        cur.close()
+        
+        # If non-compliant, warn but still allow approval (admin decision)
+        if has_non_compliant:
+            print(f"WARNING: Transaction {transaction_id} approved despite non-compliant policy check")
+        
+    except Exception as e:
+        print(f"DB approve transaction error: {e}")
+        import traceback
+        traceback.print_exc()
+        conn.rollback()
+        return make_response("Approve failed", 500)
+    finally:
+        conn.close()
+    
+    return redirect(url_for("transactions_list", award_id=txn['award_id']))
+
+
+@app.route("/transactions/<int:transaction_id>/pay", methods=["POST"])
+def transaction_pay(transaction_id):
+    """Process payment for an approved transaction (Admin/Finance only).
+    
+    This moves the transaction from Approved to Paid status.
+    The amount moves from committed to spent in the budget.
+    """
+    u = session.get("user")
+    if not u or u.get("role") not in ("Admin", "Finance"):
+        return redirect(url_for("home"))
+    
+    conn = get_db()
+    if conn is None:
+        return make_response("DB connection failed", 500)
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Get transaction details
+        cur.execute(
+            """
+            SELECT t.transaction_id, t.award_id, t.category, t.amount, t.status, a.status as award_status
+            FROM transactions t
+            JOIN awards a ON t.award_id = a.award_id
+            WHERE t.transaction_id = %s
+            """,
+            (transaction_id,)
+        )
+        txn = cur.fetchone()
+        
+        if not txn:
+            cur.close()
+            conn.close()
+            return "Transaction not found", 404
+        
+        if txn['status'] != 'Approved':
+            cur.close()
+            conn.close()
+            return "Only approved transactions can be paid", 400
+        
+        if txn['award_status'] != 'Approved':
+            cur.close()
+            conn.close()
+            return "Award must be approved", 400
+        
+        # Convert amount to float
+        amount_val = float(txn['amount'] or 0)
+        award_id = txn['award_id']
+        
+        # Update transaction status to Paid
+        cur.execute(
+            "UPDATE transactions SET status = 'Paid' WHERE transaction_id = %s",
+            (transaction_id,)
+        )
+        
+        # Map transaction category to budget category
+        txn_category = txn['category'] or 'Other'
+        # Check if "Other Direct Costs" exists in budget_lines
+        cur.execute(
+            """
+            SELECT category FROM budget_lines
+            WHERE award_id = %s
+            """,
+            (award_id,)
+        )
+        existing_categories = [row['category'] for row in cur.fetchall()]
+        if txn_category == 'Other' and 'Other Direct Costs' in existing_categories:
+            txn_category = 'Other Direct Costs'
+        
+        # Move from committed to spent in budget_lines
+        # First ensure budget line exists
+        cur.execute(
+            """
+            SELECT line_id FROM budget_lines
+            WHERE award_id = %s AND category = %s
+            """,
+            (award_id, txn_category)
+        )
+        budget_line = cur.fetchone()
+        
+        if budget_line:
+            cur.execute(
+                """
+                UPDATE budget_lines
                 SET committed_amount = GREATEST(0, committed_amount - %s),
                     spent_amount = spent_amount + %s
                 WHERE award_id = %s AND category = %s
                 """,
-                (txn['amount'], txn['amount'], txn['award_id'], txn_category)
+                (amount_val, amount_val, award_id, txn_category)
             )
         else:
             # Create budget line if it doesn't exist
@@ -2921,20 +3120,25 @@ def transaction_approve(transaction_id):
                 INSERT INTO budget_lines (award_id, category, allocated_amount, spent_amount, committed_amount)
                 VALUES (%s, %s, 0, %s, 0)
                 """,
-                (txn['award_id'], txn['category'], txn['amount'])
+                (award_id, txn_category, amount_val)
             )
         
         conn.commit()
         cur.close()
         
     except Exception as e:
-        print(f"DB approve transaction error: {e}")
-        conn.rollback()
-        return make_response("Approve failed", 500)
+        print(f"DB pay transaction error: {e}")
+        import traceback
+        traceback.print_exc()
+        if conn:
+            conn.rollback()
+        return make_response(f"Payment processing failed: {str(e)}", 500)
     finally:
-        conn.close()
+        if conn:
+            conn.close()
     
-    return redirect(url_for("transactions_list", award_id=txn['award_id']))
+    # Get award_id for redirect (use the one we extracted earlier)
+    return redirect(url_for("transactions_list", award_id=award_id))
 
 
 @app.route("/transactions/<int:transaction_id>/decline", methods=["POST"])
@@ -2961,10 +3165,12 @@ def transaction_decline(transaction_id):
         if not txn:
             return "Transaction not found", 404
         
-        if txn['status'] != 'Pending':
-            return "Transaction already processed", 400
+        # Can decline either Pending or Approved transactions (but not Paid)
+        if txn['status'] not in ('Pending', 'Approved'):
+            return "Transaction already processed or paid", 400
         
         award_id = txn['award_id']
+        old_status = txn['status']
         
         # Update transaction status
         cur.execute(
@@ -2986,25 +3192,27 @@ def transaction_decline(transaction_id):
         if txn_category == 'Other' and 'Other Direct Costs' in existing_categories:
             txn_category = 'Other Direct Costs'
         
-        # Remove from committed amount in budget_lines
-        cur.execute(
-            """
-            SELECT line_id FROM budget_lines
-            WHERE award_id = %s AND category = %s
-            """,
-            (award_id, txn_category)
-        )
-        budget_line = cur.fetchone()
-        
-        if budget_line:
+        # Only remove from committed if the transaction was Approved
+        # Pending transactions are NOT in committed, so nothing to remove
+        if old_status == 'Approved':
             cur.execute(
                 """
-                UPDATE budget_lines
-                SET committed_amount = GREATEST(0, committed_amount - %s)
+                SELECT line_id FROM budget_lines
                 WHERE award_id = %s AND category = %s
                 """,
-                (txn['amount'], award_id, txn_category)
+                (award_id, txn_category)
             )
+            budget_line = cur.fetchone()
+            
+            if budget_line:
+                cur.execute(
+                    """
+                    UPDATE budget_lines
+                    SET committed_amount = GREATEST(0, committed_amount - %s)
+                    WHERE award_id = %s AND category = %s
+                    """,
+                    (txn['amount'], award_id, txn_category)
+                )
         
         conn.commit()
         cur.close()
@@ -3438,6 +3646,136 @@ Only return the JSON object, nothing else."""
     return results
 
 
+def check_transaction_compliance(transaction, award):
+    """
+    Check transaction compliance against University, Sponsor, and Federal policies using LLM.
+    Returns a dict with compliance results for each policy level.
+    """
+    # Read policy files
+    university_policy = read_policy_file("university")
+    federal_policy = read_policy_file("federal")
+    sponsor_policy = read_policy_file("sponsor")
+    
+    # Format transaction data for LLM
+    transaction_text = f"""
+Transaction Details:
+- Category: {transaction.get('category', 'N/A')}
+- Description: {transaction.get('description', 'N/A')}
+- Amount: ${transaction.get('amount', 0):,.2f}
+- Date Submitted: {transaction.get('date_submitted', 'N/A')}
+
+Award Context:
+- Title: {award.get('title', 'N/A')}
+- Sponsor: {award.get('sponsor_type', 'N/A')}
+- Amount: ${award.get('amount', 0):,.2f}
+- Start Date: {award.get('start_date', 'N/A')}
+- End Date: {award.get('end_date', 'N/A')}
+"""
+    
+    # Get OpenAI API key from environment
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return {
+            "error": "OpenAI API key not configured",
+            "university": {"result": "unknown", "reason": "API key missing"},
+            "federal": {"result": "unknown", "reason": "API key missing"},
+            "sponsor": {"result": "unknown", "reason": "API key missing"}
+        }
+    
+    # Initialize OpenAI client
+    client = OpenAI(api_key=api_key)
+    
+    results = {}
+    
+    # Check each policy level
+    policy_checks = [
+        ("university", "University", university_policy),
+        ("federal", "Federal", federal_policy),
+        ("sponsor", "Sponsor", sponsor_policy)
+    ]
+    
+    for key, name, policy_text in policy_checks:
+        if not policy_text:
+            results[key] = {"result": "unknown", "reason": f"{name} policy text not available"}
+            continue
+        
+        try:
+            # Determine priority level for context
+            priority_note = ""
+            if name == "Federal":
+                priority_note = "NOTE: Federal policy has HIGHEST PRIORITY. Any violation must result in 'non-compliant'."
+            elif name == "Sponsor":
+                priority_note = "NOTE: Sponsor policy must follow Federal requirements. Check both Federal and Sponsor rules."
+            elif name == "University":
+                priority_note = "NOTE: University policy is lowest priority but must still be followed. Check if it conflicts with Federal/Sponsor rules."
+            
+            prompt = f"""You are an AI Policy Compliance Officer for a Post-Award Research Budget Management System.
+
+Your job is to check whether a TRANSACTION (spending request) complies with {name} policy.
+
+CRITICAL: You must base every decision ONLY on the policy text provided. Do not assume or invent any rules.
+
+{priority_note}
+
+IMPORTANT TRANSACTION POLICY RULES:
+- Once a transaction is approved, it is recorded as a committed cost and no longer counted as "requested."
+- Committed costs do NOT increase the spent total until the university actually pays the expense.
+- The remaining balance is immediately reduced by the committed amount to prevent overspending.
+- All approved transactions must undergo a compliance verification before payment (allowable, allocable, reasonable).
+- Payments cannot exceed the approved amount unless a new approval request is submitted.
+- The transaction must follow procurement or travel rules based on category (equipment, supplies, airfare, etc.).
+- All post-approval activities must comply with Federal, Sponsor, and University policies.
+
+POLICY TEXT:
+{policy_text}
+
+TRANSACTION DATA:
+{transaction_text}
+
+Analyze the transaction against the {name} policy above. Your output must be a JSON object in this exact format:
+{{
+  "result": "compliant" | "non-compliant" | "unknown",
+  "reason": "Short and clear explanation referencing specific policy text and section numbers."
+}}
+
+Only return the JSON object, nothing else."""
+
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are a policy compliance officer. Always respond with valid JSON only."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=500
+            )
+            
+            # Parse JSON response
+            response_text = response.choices[0].message.content.strip()
+            # Remove markdown code blocks if present
+            if response_text.startswith("```"):
+                response_text = response_text.split("```")[1]
+                if response_text.startswith("json"):
+                    response_text = response_text[4:]
+                response_text = response_text.strip()
+            
+            compliance_result = json.loads(response_text)
+            results[key] = compliance_result
+            
+        except json.JSONDecodeError as e:
+            print(f"Error parsing JSON response for {name} policy: {e}")
+            response_text_str = response_text if 'response_text' in locals() else "No response received"
+            print(f"Response was: {response_text_str}")
+            results[key] = {"result": "unknown", "reason": f"Error parsing LLM response: {str(e)}"}
+        except Exception as e:
+            print(f"Error checking {name} policy compliance: {e}")
+            import traceback
+            traceback.print_exc()
+            results[key] = {"result": "unknown", "reason": f"Error: {str(e)}"}
+    
+    return results
+
+
 @app.route("/awards/<int:award_id>/check-compliance", methods=["POST"])
 def check_award_compliance(award_id):
     """Check policy compliance for an award using LLM."""
@@ -3513,8 +3851,89 @@ def check_award_compliance(award_id):
         return make_response(json.dumps({"error": str(e)}), 500, {"Content-Type": "application/json"})
 
 
+@app.route("/transactions/<int:transaction_id>/check-compliance", methods=["POST"])
+def check_transaction_compliance_route(transaction_id):
+    """Check policy compliance for a transaction using LLM."""
+    u = session.get("user")
+    if not u:
+        return make_response(json.dumps({"error": "Not authenticated"}), 401, {"Content-Type": "application/json"})
+    
+    # Only Admin/Finance can check compliance
+    if u.get("role") not in ("Admin", "Finance"):
+        return make_response(json.dumps({"error": "Unauthorized"}), 403, {"Content-Type": "application/json"})
+    
+    conn = get_db()
+    if conn is None:
+        return make_response(json.dumps({"error": "DB connection failed"}), 500, {"Content-Type": "application/json"})
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Get transaction with award info
+        cur.execute(
+            """
+            SELECT t.*, a.title, a.sponsor_type, a.amount as award_amount,
+                   a.start_date, a.end_date
+            FROM transactions t
+            JOIN awards a ON t.award_id = a.award_id
+            WHERE t.transaction_id = %s
+            """,
+            (transaction_id,)
+        )
+        txn = cur.fetchone()
+        
+        if not txn:
+            cur.close()
+            conn.close()
+            return make_response(json.dumps({"error": "Transaction not found"}), 404, {"Content-Type": "application/json"})
+        
+        # Format award data for compliance check
+        award_data = {
+            'title': txn.get('title', ''),
+            'sponsor_type': txn.get('sponsor_type', ''),
+            'amount': float(txn.get('award_amount', 0) or 0),
+            'start_date': txn.get('start_date', ''),
+            'end_date': txn.get('end_date', '')
+        }
+        
+        cur.close()
+        conn.close()
+        
+        # Check compliance
+        compliance_results = check_transaction_compliance(txn, award_data)
+        
+        # Store results in database (update compliance_notes)
+        if "error" not in compliance_results:
+            conn = get_db()
+            if conn:
+                try:
+                    cur = conn.cursor()
+                    notes = json.dumps(compliance_results)
+                    cur.execute(
+                        "UPDATE transactions SET compliance_notes = %s WHERE transaction_id = %s",
+                        (notes, transaction_id)
+                    )
+                    conn.commit()
+                    cur.close()
+                except Exception as e:
+                    print(f"Error saving transaction compliance results: {e}")
+                finally:
+                    conn.close()
+        
+        return make_response(json.dumps(compliance_results, indent=2), 200, {"Content-Type": "application/json"})
+        
+    except Exception as e:
+        print(f"Error checking transaction compliance: {e}")
+        import traceback
+        traceback.print_exc()
+        return make_response(json.dumps({"error": str(e)}), 500, {"Content-Type": "application/json"})
+
+
 @app.route("/admin/init-db", methods=["GET", "POST"])
 def admin_init_db():
+    """Initialize database and update constraints."""
+    # Update transactions status constraint
+    update_transactions_status_constraint()
     """Admin route to manually initialize database schema."""
     u = session.get("user")
     if not u or u.get("role") != "Admin":
@@ -3607,4 +4026,6 @@ def admin_init_db():
 
 if __name__ == "__main__":
     init_db_if_needed()
+    # Ensure transactions constraint includes 'Paid' status
+    update_transactions_status_constraint()
     app.run(debug=True, port=8000)

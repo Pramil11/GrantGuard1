@@ -172,6 +172,8 @@
                 <th>Name</th>
                 <th>Position</th>
                 <th>Hours for year(s)</th>
+                <th>Rate per Hour</th>
+                <th>Total</th>
                 <th>Same Each Year?</th>
               </tr>
             </thead>
@@ -187,6 +189,20 @@
                     {% endfor %}
                   {% else %}
                     N/A
+                  {% endif %}
+                </td>
+                <td>
+                  {% if p.rate_per_hour %}
+                    ${{ '{:,.2f}'.format(p.rate_per_hour) }}
+                  {% else %}
+                    N/A
+                  {% endif %}
+                </td>
+                <td style="font-weight: 600; color: #0b84f3;">
+                  {% if p.total %}
+                    ${{ '{:,.2f}'.format(p.total) }}
+                  {% else %}
+                    $0.00
                   {% endif %}
                 </td>
                 <td>
