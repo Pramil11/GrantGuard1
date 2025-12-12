@@ -2623,7 +2623,31 @@ def budget_status(award_id):
         initialize_budget_lines(award_id)
     
     budget_status_data = get_budget_status(award_id)
-    
+
+        # ---- SUBAWARD COMMITTED AMOUNT ----
+    conn = get_db()
+    subaward_committed = 0.0
+
+    if conn is not None:
+        try:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(
+                """
+                SELECT COALESCE(SUM(amount), 0) AS subaward_total
+                FROM subawards
+                WHERE award_id = %s
+                  AND status = 'Approved'
+                """,
+                (award_id,)
+            )
+            row = cur.fetchone()
+            subaward_committed = float(row["subaward_total"]) if row else 0.0
+            cur.close()
+        except Exception as e:
+            print(f"DB fetch subaward total error: {e}")
+        finally:
+            conn.close()
+
     # Helper function to parse JSON fields
     def parse_json_field(raw):
         if not raw:
@@ -2729,12 +2753,21 @@ def budget_status(award_id):
             conn.close()
     
     # Calculate totals (ensure all are floats)
-    totals = {
-        'allocated': float(sum(cat.get('allocated', 0) for cat in budget_status_data.values())),
-        'spent': float(sum(cat.get('spent', 0) for cat in budget_status_data.values())),
-        'committed': float(sum(cat.get('committed', 0) for cat in budget_status_data.values())),
-        'remaining': float(sum(cat.get('remaining', 0) for cat in budget_status_data.values())),
-    }
+        allocated = sum(cat.get('allocated', 0) for cat in budget_status_data.values())
+        spent = sum(cat.get('spent', 0) for cat in budget_status_data.values())
+        committed_tx = sum(cat.get('committed', 0) for cat in budget_status_data.values())
+
+        # Include approved subawards as committed
+        committed = committed_tx + subaward_committed
+
+        remaining = allocated - spent - committed
+
+        totals = {
+            'allocated': allocated,
+            'spent': spent,
+            'committed': committed,
+            'remaining': remaining,
+        }
     
     # Convert award.amount to float and calculate remaining budget
     total_award_amount = float(award.get('amount') or 0)
