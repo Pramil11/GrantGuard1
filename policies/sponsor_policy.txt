@@ -1,25 +1,84 @@
-SPONSOR RESEARCH BUDGET POLICY (NSF / NIH / DoD STYLE)
+SPONSOR POLICY (NSF / NIH / DoD STYLE)
 
-Personnel (Salary) Allowed: - PI/Co-PI effort as approved in proposal -
-Graduate, undergraduate, and postdoctoral researchers Not Allowed: - Any
-salary not listed in proposal - Admin/clerical salaries without approval
-Rule: If sponsor did not approve it → cannot be charged. Violations: -
-Adding new staff without approval - Charging admin personnel
+(Must follow Federal AND sponsor requirements.)
 
-Equipment Allowed: - Equipment proposed and justified Not Allowed: - New
-equipment not in proposal - General-purpose equipment Violations: -
-Drone purchase not planned - Extra laptops without justification
+1. Personnel
 
-Travel Allowed: - Travel in proposal - Sponsor-required meetings Not
-Allowed: - Foreign travel without approval - Non-research travel
-Violations: - Vacation travel charged to grant - Bringing non-project
-people
+Allowed:
+- PI and Co-PI effort as listed in the approved proposal.
+- Graduate students, undergraduates, and technicians budgeted in proposal.
+- Salary changes that receive sponsor approval.
 
-Participant Support Costs Allowed: - Stipends, travel, lodging, meals
-for participants Not Allowed: - Paying PI salary - Buying equipment
-using PSC Violations: - Laptop purchase using PSC - Paying staff from
-PSC funds
+Not Allowed:
+- Personnel not listed in the proposal without sponsor approval.
+- Administrative staff unless pre-approved and justified.
+- Charging more effort than proposed without approval.
 
-Subawards Allowed: - Approved formal subcontracts Not Allowed: -
-Informal payments - Unapproved subrecipients Violations: - Paying
-friend’s company - Creating new partners without approval
+Rules:
+- Reducing PI effort by >25% requires sponsor approval.
+- NIH and NSF salary caps must be followed.
+
+Violations:
+- Adding a new technician without sponsor notification.
+- Hiding administrative staff charges inside "other direct costs."
+
+2. Equipment
+
+Allowed:
+- Equipment explicitly listed in the proposal budget and justification.
+- Scientific upgrades or replacements with valid justification.
+
+Not Allowed:
+- Equipment not originally included in the proposal.
+- General-purpose equipment unless justified.
+
+Violations:
+- Buying drones/robots not listed in proposal.
+- Purchasing extra laptops "for convenience."
+
+3. Travel (Sponsor-Specific)
+
+Allowed:
+- Fieldwork travel, conferences, required sponsor meetings.
+- International travel allowed if:
+  - Fly America Act is followed AND
+  - It benefits the project.
+
+Not Allowed:
+- Personal or recreational travel.
+- Travel for individuals not working on the project.
+
+Sponsor Rules:
+- NSF requires travel justification tied to project outcomes.
+- DoD may require pre-trip security briefings.
+
+Violations:
+- Charging flight costs for family members.
+- Attending unrelated conferences.
+
+4. Participant Support Costs (PSC)
+
+Allowed:
+- Stipends, lodging, meals for participants.
+- Travel only for participants.
+
+Not Allowed:
+- PI or administrative salary from PSC funds.
+- Equipment purchases.
+
+Violations:
+- Buying laptops from PSC funds.
+- Charging PI time to PSC.
+
+5. Subawards
+
+Allowed:
+- Subrecipients named in the proposal.
+- Adding new subrecipients with sponsor modification.
+
+Not Allowed:
+- Paying a consultant as a subawardee without contract.
+
+Violations:
+- Paying partners without updated award documents.
+- No monitoring reports from subrecipients.

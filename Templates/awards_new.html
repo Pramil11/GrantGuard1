@@ -130,6 +130,8 @@
                   <th>Name</th>
                   <th>Position</th>
                   <th>Hours for year(s)</th>
+                  <th>Rate per Hour ($)</th>
+                  <th>Total ($)</th>
                   <th>Same for Each Year</th>
                   <th>Remove</th>
                 </tr>
@@ -161,6 +163,24 @@
                   </td>
                   <td>
                     <div class="year-hours"></div>
+                  </td>
+                  <td>
+                    <input type="number"
+                           class="person-rate"
+                           name="personnel_rate[]"
+                           placeholder="Rate ($)"
+                           step="0.01"
+                           min="0"
+                           style="width:100%;">
+                  </td>
+                  <td>
+                    <input type="number"
+                           class="person-total"
+                           name="personnel_total[]"
+                           placeholder="Total"
+                           step="0.01"
+                           readonly
+                           style="width:100%; background-color:#f5f5f5;">
                   </td>
                   <td style="text-align:center;">
                     <input type="checkbox"
@@ -194,21 +214,18 @@
                 <textarea name="domestic_travel_desc[]"
                           class="travel-desc"
                           placeholder="Description & Research Purpose *"
-                          required></textarea>
+                          required
+                          style="width:100%; min-height:60px; padding:10px; border-radius:8px; border:1px solid #ccc;"></textarea>
               </div>
-              <div class="travel-row">
+              <div class="travel-row" style="margin-top:8px;">
                 <input type="number"
-                       name="domestic_travel_flight[]"
-                       class="travel-flight"
-                       placeholder="Flight $">
-                <input type="number"
-                       name="domestic_travel_taxi[]"
-                       class="travel-taxi"
-                       placeholder="Taxi/Uber $/day">
-                <input type="number"
-                       name="domestic_travel_food[]"
-                       class="travel-food"
-                       placeholder="Food & Lodge $/day">
+                       name="domestic_travel_total[]"
+                       class="travel-total"
+                       placeholder="Total Estimated Amount ($)"
+                       step="0.01"
+                       min="0"
+                       required
+                       style="width:100%; padding:10px; border-radius:8px; border:1px solid #ccc;">
               </div>
             </div>
           </div>
@@ -224,21 +241,18 @@
                 <textarea name="international_travel_desc[]"
                           class="travel-desc"
                           placeholder="Description & Research Purpose *"
-                          required></textarea>
+                          required
+                          style="width:100%; min-height:60px; padding:10px; border-radius:8px; border:1px solid #ccc;"></textarea>
               </div>
-              <div class="travel-row">
+              <div class="travel-row" style="margin-top:8px;">
                 <input type="number"
-                       name="international_travel_flight[]"
-                       class="travel-flight"
-                       placeholder="Flight $">
-                <input type="number"
-                       name="international_travel_taxi[]"
-                       class="travel-taxi"
-                       placeholder="Taxi/Uber $/day">
-                <input type="number"
-                       name="international_travel_food[]"
-                       class="travel-food"
-                       placeholder="Food & Lodge $/day">
+                       name="international_travel_total[]"
+                       class="travel-total"
+                       placeholder="Total Estimated Amount ($)"
+                       step="0.01"
+                       min="0"
+                       required
+                       style="width:100%; padding:10px; border-radius:8px; border:1px solid #ccc;">
               </div>
             </div>
           </div>
@@ -255,6 +269,12 @@
           <div id="equipment-list" class="materials-list">
             <div class="material-item"
                  style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
+              <textarea name="equipment_desc[]"
+                        class="mat-desc"
+                        placeholder="Equipment Description & Justification *"
+                        required
+                        style="flex:2; min-width:220px; min-height:60px;"></textarea>
+
               <input type="number"
                      name="equipment_cost[]"
                      class="mat-cost"
@@ -263,11 +283,6 @@
                      min="0"
                      style="flex:0.7; min-width:140px;">
 
-              <textarea name="equipment_desc[]"
-                        class="mat-desc"
-                        placeholder="Equipment Description & Justification *"
-                        required
-                        style="flex:2; min-width:220px; min-height:40px;"></textarea>
               <button type="button"
                       class="material-remove"
                       style="border:none; background:none; color:#d9534f;
@@ -290,6 +305,12 @@
           <div id="materials-list" class="materials-list">
             <div class="material-item"
                  style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
+              <textarea name="material_desc[]"
+                        class="mat-desc"
+                        placeholder="Description & Justification *"
+                        required
+                        style="flex:2; min-width:220px; min-height:60px;"></textarea>
+
               <input type="number"
                      name="material_cost[]"
                      class="mat-cost"
@@ -298,11 +319,6 @@
                      min="0"
                      style="flex:0.7; min-width:140px;">
 
-              <textarea name="material_desc[]"
-                        class="mat-desc"
-                        placeholder="Description & Justification *"
-                        required
-                        style="flex:2; min-width:220px; min-height:40px;"></textarea>
               <button type="button"
                       class="material-remove"
                       style="border:none; background:none; color:#d9534f;
@@ -325,6 +341,12 @@
           <div id="other-costs-list" class="materials-list">
             <div class="material-item"
                  style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
+              <textarea name="other_cost_desc[]"
+                        class="mat-desc"
+                        placeholder="Description & Justification *"
+                        required
+                        style="flex:2; min-width:220px; min-height:60px;"></textarea>
+
               <input type="number"
                      name="other_cost_amount[]"
                      class="mat-cost"
@@ -333,11 +355,6 @@
                      min="0"
                      style="flex:0.7; min-width:140px;">
 
-              <textarea name="other_cost_desc[]"
-                        class="mat-desc"
-                        placeholder="Description & Justification *"
-                        required
-                        style="flex:2; min-width:220px; min-height:40px;"></textarea>
               <button type="button"
                       class="material-remove"
                       style="border:none; background:none; color:#d9534f;

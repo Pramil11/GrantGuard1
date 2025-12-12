@@ -17,7 +17,9 @@
       </div>
       <nav class="menu">
         <a href="/dashboard">Dashboard</a>
+        {% if user.role != 'Admin' %}
         <a href="/awards/new">Generate Grants</a>
+        {% endif %}
         <a href="/policies/university">Policies</a>
         <a class="active" href="/subawards">Subawards</a>
         <a href="/settings">Settings</a>

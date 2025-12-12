@@ -84,7 +84,36 @@ document.addEventListener('DOMContentLoaded', function () {
         for (let i = 1; i < inputs.length; i++) {
           inputs[i].value = firstVal;
         }
+        calculatePersonnelTotal(row);
       }
+
+      // Calculate total for this personnel row (sum of all year hours * rate)
+      function calculatePersonnelTotal(personRow) {
+        const rateInput = personRow.querySelector('.person-rate');
+        const totalInput = personRow.querySelector('.person-total');
+        if (!rateInput || !totalInput) return;
+
+        const rate = parseFloat(rateInput.value) || 0;
+        const hourInputs = container.querySelectorAll('input[type="number"]');
+        let totalHours = 0;
+
+        hourInputs.forEach(inp => {
+          const hours = parseFloat(inp.value) || 0;
+          totalHours += hours;
+        });
+
+        const total = totalHours * rate;
+        totalInput.value = total.toFixed(2);
+      }
+
+      // Add event listeners for rate and hours to calculate total
+      const rateInput = row.querySelector('.person-rate');
+      if (rateInput) {
+        rateInput.addEventListener('input', () => calculatePersonnelTotal(row));
+      }
+      inputs.forEach(inp => {
+        inp.addEventListener('input', () => calculatePersonnelTotal(row));
+      });
 
       // When checkbox is toggled ON, copy first year's hours to all years once
       if (checkbox) {
@@ -155,13 +184,44 @@ document.addEventListener('DOMContentLoaded', function () {
     if (container) container.innerHTML = '';
   }
 
-  if (addPersonBtn && personTemplate) {
+    if (addPersonBtn && personTemplate) {
     addPersonBtn.addEventListener('click', () => {
       const clone = personTemplate.cloneNode(true);
       clearPersonRow(clone);
       clone.classList.add('person-row');
       personnelTable.appendChild(clone);
       renderHoursPerYear();
+      
+      // Add event listeners for the new row's rate and hours
+      const rateInput = clone.querySelector('.person-rate');
+      const hourInputs = clone.querySelectorAll('.year-hours input[type="number"]');
+      if (rateInput) {
+        rateInput.addEventListener('input', () => {
+          const totalInput = clone.querySelector('.person-total');
+          const rate = parseFloat(rateInput.value) || 0;
+          let totalHours = 0;
+          hourInputs.forEach(inp => {
+            totalHours += parseFloat(inp.value) || 0;
+          });
+          if (totalInput) {
+            totalInput.value = (totalHours * rate).toFixed(2);
+          }
+        });
+      }
+      hourInputs.forEach(inp => {
+        inp.addEventListener('input', () => {
+          const totalInput = clone.querySelector('.person-total');
+          const rateInput = clone.querySelector('.person-rate');
+          const rate = parseFloat(rateInput?.value) || 0;
+          let totalHours = 0;
+          clone.querySelectorAll('.year-hours input[type="number"]').forEach(hInp => {
+            totalHours += parseFloat(hInp.value) || 0;
+          });
+          if (totalInput) {
+            totalInput.value = (totalHours * rate).toFixed(2);
+          }
+        });
+      });
     });
 
     personnelTable.addEventListener('click', (e) => {
@@ -259,6 +319,64 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
+  // ---------- EQUIPMENT ADD/REMOVE ----------
+  const equipmentList  = document.getElementById('equipment-list');
+  const addEquipmentBtn = document.getElementById('add-equipment');
+
+  let equipmentTemplate = null;
+
+  if (equipmentList) {
+    const firstItem = equipmentList.querySelector('.material-item');
+    if (firstItem) {
+      equipmentTemplate = firstItem.cloneNode(true);
+    }
+  }
+
+  if (equipmentList && addEquipmentBtn && equipmentTemplate) {
+    addEquipmentBtn.addEventListener('click', () => {
+      const clone = equipmentTemplate.cloneNode(true);
+      clearMaterialBlock(clone);
+      equipmentList.appendChild(clone);
+      renderHoursPerYear();
+    });
+
+    equipmentList.addEventListener('click', (e) => {
+      if (e.target.classList.contains('material-remove')) {
+        const item = e.target.closest('.material-item');
+        if (item) item.remove();
+      }
+    });
+  }
+
+  // ---------- OTHER DIRECT COSTS ADD/REMOVE ----------
+  const otherCostsList  = document.getElementById('other-costs-list');
+  const addOtherCostBtn = document.getElementById('add-other-cost');
+
+  let otherCostTemplate = null;
+
+  if (otherCostsList) {
+    const firstItem = otherCostsList.querySelector('.material-item');
+    if (firstItem) {
+      otherCostTemplate = firstItem.cloneNode(true);
+    }
+  }
+
+  if (otherCostsList && addOtherCostBtn && otherCostTemplate) {
+    addOtherCostBtn.addEventListener('click', () => {
+      const clone = otherCostTemplate.cloneNode(true);
+      clearMaterialBlock(clone);
+      otherCostsList.appendChild(clone);
+      renderHoursPerYear();
+    });
+
+    otherCostsList.addEventListener('click', (e) => {
+      if (e.target.classList.contains('material-remove')) {
+        const item = e.target.closest('.material-item');
+        if (item) item.remove();
+      }
+    });
+  }
+
   function clearMaterialBlock(block) {
     block.querySelectorAll('input, textarea, select').forEach(el => {
       if (el.type === 'checkbox' || el.type === 'radio') {
@@ -320,11 +438,18 @@ document.addEventListener('DOMContentLoaded', function () {
           });
         }
 
+        const rateInput = row.querySelector('.person-rate');
+        const totalInput = row.querySelector('.person-total');
+        const rate = rateInput ? (parseFloat(rateInput.value) || 0) : 0;
+        const total = totalInput ? (parseFloat(totalInput.value) || 0) : 0;
+
         personnel.push({
           name: nameInput.value.trim(),
           position: posSelect ? posSelect.value.trim() : '',
           same_each_year: sameChk ? !!sameChk.checked : false,
-          hours
+          hours,
+          rate_per_hour: rate,
+          total: total
         });
       });
 
@@ -334,29 +459,15 @@ document.addEventListener('DOMContentLoaded', function () {
       // DOMESTIC TRAVEL JSON
       const domesticTrips = [];
       document.querySelectorAll('#domestic-travel-list .travel-item').forEach(item => {
-        const name  = item.querySelector('input[name="domestic_travel_name[]"]')?.value || '';
         const desc  = item.querySelector('textarea[name="domestic_travel_desc[]"]')?.value || '';
-        const year  = item.querySelector('select[name="domestic_travel_year[]"]')?.value || '';
-        const dep   = item.querySelector('input[name="domestic_travel_depart[]"]')?.value || '';
-        const arr   = item.querySelector('input[name="domestic_travel_arrive[]"]')?.value || '';
-        const flt   = item.querySelector('input[name="domestic_travel_flight[]"]')?.value || '';
-        const taxi  = item.querySelector('input[name="domestic_travel_taxi[]"]')?.value || '';
-        const food  = item.querySelector('input[name="domestic_travel_food[]"]')?.value || '';
-        const days  = item.querySelector('input[name="domestic_travel_days[]"]')?.value || '';
+        const total = item.querySelector('input[name="domestic_travel_total[]"]')?.value || '';
 
-        const allEmpty = !name && !desc && !year && !dep && !arr && !flt && !taxi && !food && !days;
+        const allEmpty = !desc && !total;
         if (allEmpty) return;
 
         domesticTrips.push({
-          name,
           description: desc,
-          year,
-          depart: dep,
-          arrive: arr,
-          flight: flt  ? parseFloat(flt)  : null,
-          taxi_per_day: taxi ? parseFloat(taxi) : null,
-          food_per_day: food ? parseFloat(food) : null,
-          days: days ? parseFloat(days) : null
+          total_amount: total ? parseFloat(total) : null
         });
       });
 
@@ -366,29 +477,15 @@ document.addEventListener('DOMContentLoaded', function () {
       // INTERNATIONAL TRAVEL JSON
       const intlTrips = [];
       document.querySelectorAll('#international-travel-list .travel-item').forEach(item => {
-        const name  = item.querySelector('input[name="international_travel_name[]"]')?.value || '';
         const desc  = item.querySelector('textarea[name="international_travel_desc[]"]')?.value || '';
-        const year  = item.querySelector('select[name="international_travel_year[]"]')?.value || '';
-        const dep   = item.querySelector('input[name="international_travel_depart[]"]')?.value || '';
-        const arr   = item.querySelector('input[name="international_travel_arrive[]"]')?.value || '';
-        const flt   = item.querySelector('input[name="international_travel_flight[]"]')?.value || '';
-        const taxi  = item.querySelector('input[name="international_travel_taxi[]"]')?.value || '';
-        const food  = item.querySelector('input[name="international_travel_food[]"]')?.value || '';
-        const days  = item.querySelector('input[name="international_travel_days[]"]')?.value || '';
+        const total = item.querySelector('input[name="international_travel_total[]"]')?.value || '';
 
-        const allEmpty = !name && !desc && !year && !dep && !arr && !flt && !taxi && !food && !days;
+        const allEmpty = !desc && !total;
         if (allEmpty) return;
 
         intlTrips.push({
-          name,
           description: desc,
-          year,
-          depart: dep,
-          arrive: arr,
-          flight: flt  ? parseFloat(flt)  : null,
-          taxi_per_day: taxi ? parseFloat(taxi) : null,
-          food_per_day: food ? parseFloat(food) : null,
-          days: days ? parseFloat(days) : null
+          total_amount: total ? parseFloat(total) : null
         });
       });
 
@@ -398,54 +495,42 @@ document.addEventListener('DOMContentLoaded', function () {
       // MATERIALS JSON
       const materials = [];
       document.querySelectorAll('#materials-list .material-item').forEach(item => {
-        const category = item.querySelector('select[name="material_category[]"]')?.value || '';
         const cost     = item.querySelector('input[name="material_cost[]"]')?.value || '';
         const desc     = item.querySelector('textarea[name="material_desc[]"]')?.value || '';
-        const year     = item.querySelector('select[name="material_year[]"]')?.value || '';
 
-        if (!category && !cost && !desc && !year) return;
+        if (!cost && !desc) return;
 
         materials.push({
-          category,
           cost: cost ? parseFloat(cost) : null,
-          description: desc,
-          year
+          description: desc
         });
       });
 
       // Add equipment to materials array with type='equipment'
       document.querySelectorAll('#equipment-list .material-item').forEach(item => {
-        const category = item.querySelector('select[name="equipment_category[]"]')?.value || '';
         const cost     = item.querySelector('input[name="equipment_cost[]"]')?.value || '';
         const desc     = item.querySelector('textarea[name="equipment_desc[]"]')?.value || '';
-        const year     = item.querySelector('select[name="equipment_year[]"]')?.value || '';
 
-        if (!category && !cost && !desc && !year) return;
+        if (!cost && !desc) return;
 
         materials.push({
           type: 'equipment',
-          category,
           cost: cost ? parseFloat(cost) : null,
-          description: desc,
-          year
+          description: desc
         });
       });
 
       // Add other costs to materials array with type='other'
       document.querySelectorAll('#other-costs-list .material-item').forEach(item => {
-        const category = item.querySelector('select[name="other_cost_category[]"]')?.value || '';
         const cost     = item.querySelector('input[name="other_cost_amount[]"]')?.value || '';
         const desc     = item.querySelector('textarea[name="other_cost_desc[]"]')?.value || '';
-        const year     = item.querySelector('select[name="other_cost_year[]"]')?.value || '';
 
-        if (!category && !cost && !desc && !year) return;
+        if (!cost && !desc) return;
 
         materials.push({
           type: 'other',
-          category,
           cost: cost ? parseFloat(cost) : null,
-          description: desc,
-          year
+          description: desc
         });
       });
 
@@ -478,10 +563,14 @@ document.addEventListener('DOMContentLoaded', function () {
         const nameInput = row.querySelector('input[name="personnel_name[]"]');
         const posSelect = row.querySelector('select[name="personnel_position[]"]');
         const sameChk   = row.querySelector('input[name="personnel_same_each_year[]"]');
+        const rateInput = row.querySelector('.person-rate');
+        const totalInput = row.querySelector('.person-total');
 
         if (nameInput) nameInput.value = p.name || '';
         if (posSelect) posSelect.value = p.position || '';
         if (sameChk)   sameChk.checked = !!p.same_each_year;
+        if (rateInput && p.rate_per_hour != null) rateInput.value = p.rate_per_hour;
+        if (totalInput && p.total != null) totalInput.value = p.total;
 
         personnelTable.appendChild(row);
       });
@@ -489,7 +578,7 @@ document.addEventListener('DOMContentLoaded', function () {
       // Build hours inputs for each row (based on date range)
       renderHoursPerYear();
 
-      // Now fill the hours values
+      // Now fill the hours values and recalculate totals
       const rows = document.querySelectorAll('#personnel-rows tr');
       rows.forEach((row, idx) => {
         const p = window.INIT_PERSONNEL[idx] || {};
@@ -516,6 +605,13 @@ document.addEventListener('DOMContentLoaded', function () {
             }
           });
         }
+
+        // Trigger total calculation after hours are filled
+        const rateInput = row.querySelector('.person-rate');
+        if (rateInput) {
+          const event = new Event('input', { bubbles: true });
+          rateInput.dispatchEvent(event);
+        }
       });
     }
 
@@ -531,54 +627,24 @@ document.addEventListener('DOMContentLoaded', function () {
         const block = domesticTemplate.cloneNode(true);
         clearTravelBlock(block);
 
-        const nameInput   = block.querySelector('input[name="domestic_travel_name[]"]');
         const descArea    = block.querySelector('textarea[name="domestic_travel_desc[]"]');
-        const yearSelect  = block.querySelector('select[name="domestic_travel_year[]"]');
-        const departInput = block.querySelector('input[name="domestic_travel_depart[]"]');
-        const arriveInput = block.querySelector('input[name="domestic_travel_arrive[]"]');
-        const flightInput = block.querySelector('input[name="domestic_travel_flight[]"]');
-        const taxiInput   = block.querySelector('input[name="domestic_travel_taxi[]"]');
-        const foodInput   = block.querySelector('input[name="domestic_travel_food[]"]');
-        const daysInput   = block.querySelector('input[name="domestic_travel_days[]"]');
+        const totalInput  = block.querySelector('input[name="domestic_travel_total[]"]');
 
-        const yearVal   = t.year != null ? String(t.year) : '';
-        const departVal = t.start_date || t.depart || '';
-        const arriveVal = t.end_date   || t.arrive || '';
-        const flightVal = t.flight_cost || t.flight || '';
-        const taxiVal   = t.taxi_per_day || '';
-        const foodVal   = t.food_lodge_per_day || t.food_per_day || '';
-        const daysVal   = t.num_days || t.days || '';
-
-        if (nameInput)   nameInput.value   = t.travel_name || t.name || '';
-        if (descArea)    descArea.value    = t.description || '';
-        if (departInput) departInput.value = departVal;
-        if (arriveInput) arriveInput.value = arriveVal;
-        if (flightInput && flightVal !== '') flightInput.value = flightVal;
-        if (taxiInput   && taxiVal   !== '') taxiInput.value   = taxiVal;
-        if (foodInput   && foodVal   !== '') foodInput.value   = foodVal;
-        if (daysInput   && daysVal   !== '') daysInput.value   = daysVal;
-
-        // append now; we will set year after renderHoursPerYear repopulates options
-        domesticList.appendChild(block);
-
-        if (yearSelect && yearVal) {
-          yearSelect.value = yearVal;
+        // Calculate total from old structure if needed
+        let totalVal = t.total_amount || 0;
+        if (!totalVal && (t.flight || t.taxi_per_day || t.food_per_day)) {
+          totalVal = (parseFloat(t.flight) || 0) + 
+                     (parseFloat(t.taxi_per_day) || 0) + 
+                     (parseFloat(t.food_per_day) || 0);
         }
+
+        if (descArea)    descArea.value    = t.description || '';
+        if (totalInput && totalVal) totalInput.value = totalVal;
+        domesticList.appendChild(block);
       });
 
       // repopulate year dropdown options
       renderHoursPerYear();
-
-      // now set the year values again to be safe
-      const items = domesticList.querySelectorAll('.travel-item');
-      items.forEach((block, idx) => {
-        const t = window.INIT_DOM_TRAVEL[idx];
-        if (!t) return;
-        const yearSelect = block.querySelector('select[name="domestic_travel_year[]"]');
-        if (yearSelect && t.year != null) {
-          yearSelect.value = String(t.year);
-        }
-      });
     }
 
     // ---------- 3) INTERNATIONAL TRAVEL ----------
@@ -593,51 +659,23 @@ document.addEventListener('DOMContentLoaded', function () {
         const block = internationalTemplate.cloneNode(true);
         clearTravelBlock(block);
 
-        const nameInput   = block.querySelector('input[name="international_travel_name[]"]');
         const descArea    = block.querySelector('textarea[name="international_travel_desc[]"]');
-        const yearSelect  = block.querySelector('select[name="international_travel_year[]"]');
-        const departInput = block.querySelector('input[name="international_travel_depart[]"]');
-        const arriveInput = block.querySelector('input[name="international_travel_arrive[]"]');
-        const flightInput = block.querySelector('input[name="international_travel_flight[]"]');
-        const taxiInput   = block.querySelector('input[name="international_travel_taxi[]"]');
-        const foodInput   = block.querySelector('input[name="international_travel_food[]"]');
-        const daysInput   = block.querySelector('input[name="international_travel_days[]"]');
+        const totalInput  = block.querySelector('input[name="international_travel_total[]"]');
 
-        const yearVal   = t.year != null ? String(t.year) : '';
-        const departVal = t.start_date || t.depart || '';
-        const arriveVal = t.end_date   || t.arrive || '';
-        const flightVal = t.flight_cost || t.flight || '';
-        const taxiVal   = t.taxi_per_day || '';
-        const foodVal   = t.food_lodge_per_day || t.food_per_day || '';
-        const daysVal   = t.num_days || t.days || '';
-
-        if (nameInput)   nameInput.value   = t.travel_name || t.name || '';
-        if (descArea)    descArea.value    = t.description || '';
-        if (departInput) departInput.value = departVal;
-        if (arriveInput) arriveInput.value = arriveVal;
-        if (flightInput && flightVal !== '') flightInput.value = flightVal;
-        if (taxiInput   && taxiVal   !== '') taxiInput.value   = taxiVal;
-        if (foodInput   && foodVal   !== '') foodInput.value   = foodVal;
-        if (daysInput   && daysVal   !== '') daysInput.value   = daysVal;
-
-        internationalList.appendChild(block);
-
-        if (yearSelect && yearVal) {
-          yearSelect.value = yearVal;
+        // Calculate total from old structure if needed
+        let totalVal = t.total_amount || 0;
+        if (!totalVal && (t.flight || t.taxi_per_day || t.food_per_day)) {
+          totalVal = (parseFloat(t.flight) || 0) + 
+                     (parseFloat(t.taxi_per_day) || 0) + 
+                     (parseFloat(t.food_per_day) || 0);
         }
+
+        if (descArea)    descArea.value    = t.description || '';
+        if (totalInput && totalVal) totalInput.value = totalVal;
+        internationalList.appendChild(block);
       });
 
       renderHoursPerYear();
-
-      const items = internationalList.querySelectorAll('.travel-item');
-      items.forEach((block, idx) => {
-        const t = window.INIT_INTL_TRAVEL[idx];
-        if (!t) return;
-        const yearSelect = block.querySelector('select[name="international_travel_year[]"]');
-        if (yearSelect && t.year != null) {
-          yearSelect.value = String(t.year);
-        }
-      });
     }
 
     // ---------- 4) MATERIALS, EQUIPMENT, OTHER COSTS ----------
@@ -665,24 +703,15 @@ document.addEventListener('DOMContentLoaded', function () {
         const block = materialTemplate.cloneNode(true);
         clearMaterialBlock(block);
 
-        const catSelect = block.querySelector('select[name="material_category[]"]');
         const costInput = block.querySelector('input[name="material_cost[]"]');
         const descArea  = block.querySelector('textarea[name="material_desc[]"]');
-        const yearSelect= block.querySelector('select[name="material_year[]"]');
 
-        const catVal  = m.material_type || m.category || '';
         const costVal = m.cost != null ? m.cost : '';
-        const yearVal = m.year != null ? String(m.year) : '';
 
-        if (catSelect) catSelect.value = catVal;
         if (costInput && costVal !== '') costInput.value = costVal;
         if (descArea)  descArea.value  = m.description || '';
 
         materialsList.appendChild(block);
-
-        if (yearSelect && yearVal) {
-          yearSelect.value = yearVal;
-        }
       });
       renderHoursPerYear();
     }
@@ -694,24 +723,15 @@ document.addEventListener('DOMContentLoaded', function () {
         const block = equipmentTemplate.cloneNode(true);
         clearMaterialBlock(block);
 
-        const catSelect = block.querySelector('select[name="equipment_category[]"]');
         const costInput = block.querySelector('input[name="equipment_cost[]"]');
         const descArea  = block.querySelector('textarea[name="equipment_desc[]"]');
-        const yearSelect= block.querySelector('select[name="equipment_year[]"]');
 
-        const catVal  = e.category || '';
         const costVal = e.cost != null ? e.cost : '';
-        const yearVal = e.year != null ? String(e.year) : '';
 
-        if (catSelect) catSelect.value = catVal;
         if (costInput && costVal !== '') costInput.value = costVal;
         if (descArea)  descArea.value  = e.description || '';
 
         equipmentList.appendChild(block);
-
-        if (yearSelect && yearVal) {
-          yearSelect.value = yearVal;
-        }
       });
       renderHoursPerYear();
     }
@@ -723,24 +743,15 @@ document.addEventListener('DOMContentLoaded', function () {
         const block = otherCostTemplate.cloneNode(true);
         clearMaterialBlock(block);
 
-        const catSelect = block.querySelector('select[name="other_cost_category[]"]');
         const costInput = block.querySelector('input[name="other_cost_amount[]"]');
         const descArea  = block.querySelector('textarea[name="other_cost_desc[]"]');
-        const yearSelect= block.querySelector('select[name="other_cost_year[]"]');
 
-        const catVal  = o.category || '';
         const costVal = o.cost != null ? o.cost : '';
-        const yearVal = o.year != null ? String(o.year) : '';
 
-        if (catSelect) catSelect.value = catVal;
         if (costInput && costVal !== '') costInput.value = costVal;
         if (descArea)  descArea.value  = o.description || '';
 
         otherCostsList.appendChild(block);
-
-        if (yearSelect && yearVal) {
-          yearSelect.value = yearVal;
-        }
       });
       renderHoursPerYear();
     }

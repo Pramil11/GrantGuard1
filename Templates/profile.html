@@ -18,7 +18,9 @@
       </div>
       <nav class="menu">
         <a href="/dashboard">Dashboard</a>
+        {% if user.role != 'Admin' %}
         <a href="/awards/new">Generate Grants</a>
+        {% endif %}
         <a href="/policies/university">Policies</a>
         <a href="/subawards">Subawards</a>
         <a href="/settings">Settings</a>
@@ -76,7 +78,9 @@
             <h3>Grant History</h3>
             <p class="section-description">All your submitted grants and awards</p>
           </div>
+          {% if user.role != 'Admin' %}
           <a href="/awards/new" class="btn-create">Create New Grant</a>
+          {% endif %}
         </div>
         {% if awards %}
         <div class="history-table-wrapper">
@@ -106,7 +110,9 @@
         {% else %}
           <div class="empty-state">
             <p class="empty-text">No awards yet.</p>
+            {% if user.role != 'Admin' %}
             <a href="/awards/new" class="btn-create">Create your first grant</a>
+            {% endif %}
           </div>
         {% endif %}
       </section>

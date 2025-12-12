@@ -19,7 +19,9 @@
       </div>
       <nav class="menu">
         <a class="active" href="/dashboard">Dashboard</a>
+        {% if role != 'Admin' %}
         <a href="/awards/new">Generate Grants</a>
+        {% endif %}
         <a href="/policies/university">Policies</a>
         <a href="/subawards">Subawards</a>
         <a href="/settings">Settings</a>
@@ -108,7 +110,9 @@
           </table>
         {% else %}
           <p>No grants yet.
+            {% if role != 'Admin' %}
             <a href="{{ url_for('awards_new') }}">Create your first grant</a>.
+            {% endif %}
           </p>
         {% endif %}
       </section>

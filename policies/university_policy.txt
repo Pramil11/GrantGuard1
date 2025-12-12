@@ -1,28 +1,92 @@
-UNIVERSITY RESEARCH BUDGET POLICY
+UNIVERSITY POLICY
 
-Personnel (Salary & Wages) Allowed: - PI, Co-PI, graduate assistants,
-undergraduate workers, and technicians who directly work on research
-tasks. Not Allowed: - Administrative assistants, secretaries, HR, IT, or
-office staff unless 100% dedicated to the project. Rule: Only charge
-salaries for people doing actual research work. Violations: - Charging
-admin staff - Paying someone for work they did not do
+(Internal policy that must follow Federal + Sponsor requirements.)
 
-Equipment Allowed: - Research equipment under $5,000 - Equipment above
-$5,000 with approval - Repairs/maintenance for research equipment Not
-Allowed: - Office furniture - Personal-use electronics - Non-research
-equipment Violations: - Buying a TV for the lab - Buying cameras not
-related to the project
+1. Personnel (Salary & Wages)
 
-Travel Allowed: - Travel for conferences, collaboration, or data
-collection tied to research - Must follow per-diem rates Not Allowed: -
-Upgraded seats - Personal travel Violations: - Charging vacation
-flight - Attending non-research events
+Allowed:
+- Individuals directly contributing to project aims.
+- Graduate assistants under HR rules.
+- Undergraduate researchers with defined tasks.
 
-Materials & Supplies Allowed: - Lab consumables, chemicals, computing
-accessories Not Allowed: - Office supplies - Decorations Violations: -
-Snacks or decorative items - General office supplies
+Not Allowed:
+- Administrative, clerical, HR, IT staff unless 100% allocated to project.
+- Paying before work is performed.
+- Charging salary during breaks or leave without effort worked.
 
-Other Direct Costs Allowed: - Participant incentives - Publication
-fees - Research-related software Not Allowed: - Membership fees unless
-required - Services unrelated to research Violations: - Paying honoraria
-not budgeted - Buying unrelated subscriptions
+Rules:
+- Must follow institutional base salary rates.
+- Hourly workers require timesheets.
+
+Violations:
+- Charging a secretary for occasional help.
+- Charging salary during vacation or sick leave.
+
+2. Equipment
+
+Allowed:
+- Research equipment under university threshold (e.g., < $5,000).
+- Equipment > $5,000 allowed with prior approval.
+- Repairs and maintenance.
+
+Not Allowed:
+- Personal electronics (AirPods, iPads for personal use).
+- Office furniture unless related to specialized equipment.
+
+Violations:
+- Buying a TV for a research lounge.
+- Purchasing GoPro cameras without a research purpose.
+
+3. Travel
+
+Allowed:
+- Domestic and international travel that supports research.
+- Conference travel where PI or students present project work.
+- University-approved per-diem rates.
+
+Not Allowed:
+- First-class or business-class travel.
+- Personal vacation time charged to the grant.
+- Alcohol.
+
+Violations:
+- Charging a hotel for extra personal days.
+- Buying alcoholic beverages.
+
+4. Materials & Supplies
+
+Allowed:
+- Chemicals, reagents, consumables.
+- Project-specific software licenses.
+- Research computing supplies.
+
+Not Allowed:
+- Office supplies not directly linked to research.
+- Food/snacks/coffee.
+- Decorative items.
+
+Violations:
+- Buying balloons for lab events.
+- Printer ink for general use.
+
+5. Other Direct Costs
+
+Allowed:
+- Participant incentives.
+- Publication and open-access fees.
+- Specialized data storage fees.
+
+Not Allowed:
+- Membership dues unless required for publishing.
+- Consulting unrelated to research.
+
+Violations:
+- Paying honoraria not budgeted.
+- Charging unrelated software subscriptions.
+
+POLICY HIERARCHY (LLM MUST FOLLOW THIS):
+1. Federal (highest priority) - Reject if federal policy is violated.
+2. Sponsor (middle priority) - Reject if sponsor policy violates federal or sponsor rules.
+3. University (lowest priority) - Reject if university prohibits something not prohibited above.
+
+LLM should evaluate in this exact sequence.

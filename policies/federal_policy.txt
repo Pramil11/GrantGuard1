@@ -1,28 +1,103 @@
-FEDERAL POLICY (OMB UNIFORM GUIDANCE)
+FEDERAL POLICY — OMB UNIFORM GUIDANCE (2 CFR 200)
 
-Personnel (Salary) Allowed: - Salary proportional to percentage of time
-spent - Salary must be reasonable and necessary Not Allowed: - Paying
-more than normal rate - Charging salary for unrelated work - Admin staff
-unless exceptions apply Rule: Charge only the percent of salary equal to
-percent of time worked. Violations: - Charging 50% salary for 10%
-effort - Paying PI for another project
+(Highest authority. All sponsored projects MUST follow these rules.)
 
-Equipment Allowed: - Necessary research equipment - Purchases under
-proper procurement rules Not Allowed: - Splitting large purchases to
-avoid bidding - Equipment for future projects Violations: - Two 6k
-orders to avoid 10k rules - Buying non-research equipment
+1. Personnel & Salary Charges
 
-Travel Allowed: - Economy class research travel - Travel needed for
-project Not Allowed: - Business/first class - Foreign travel ignoring
-Fly America Act Violations: - Charging business class - Flying non-US
-airline without exception
+Allowed:
+- Salary proportional to the percentage of effort actually worked.
+- Compensation must match institutional base salary and pay rates.
+- Graduate assistants, postdocs, and technicians performing research tasks.
+- Administrative/clerical salary only when specifically justified and approved.
 
-Subawards & Procurement Allowed: - Competitive bidding - Documented
-sole-source purchases Not Allowed: - Personal relationship vendors -
-Paying individuals without contracts Violations: - Hiring cousin’s
-company - Missing quotes
+Not Allowed:
+- Charging salary for effort not actually worked.
+- Increasing pay because grant money is available.
+- Charging two grants for the same effort period.
+- Charging voluntary uncommitted effort later to the grant.
 
-Documentation Required: - Receipts, invoices, proof of delivery -
-Specific justification - Effort reports Not Allowed: - Missing
-documentation - Vague justifications Violations: - No receipt - “Needed
-for project” without explanation
+Rules:
+- Effort = salary percentage and must match certified effort reports.
+- Personnel charges must satisfy "allowable, allocable, reasonable, consistently treated."
+
+Violations:
+- Charging 30% salary for someone who worked 5%.
+- PI exceeding 100% effort across multiple grants.
+- Retroactively raising salary to use remaining funds.
+
+2. Equipment
+
+Allowed:
+- Research equipment necessary to complete project aims.
+- Equipment purchased through competitive procurement.
+- Scientific equipment repairs, calibration, and maintenance.
+
+Not Allowed:
+- Splitting purchases to avoid procurement thresholds.
+- General-purpose equipment (office chairs, standard laptops) without justification.
+- "Use-it-or-lose-it" purchases at the end of the grant.
+
+Rules:
+- $10,000+ requires formal procurement or sole-source justification.
+- Federal title, tracking, and disposition rules apply.
+
+Violations:
+- Two $6,000 purchases to avoid the $10k procurement rule.
+- Buying a general-use iMac for PI office use.
+
+3. Travel
+
+Allowed:
+- Economy-class travel related to the research project.
+- International travel following the Fly America Act.
+- Per diem rates must follow federal guidelines.
+
+Not Allowed:
+- Business/first-class travel (except disability accommodation).
+- Charging vacation time as grant travel.
+- Using non-U.S. carriers without Fly America exception.
+
+Rules:
+- Travel must clearly benefit the project scientifically.
+- Fly America exceptions must be documented before reimbursement.
+
+Violations:
+- Booking a foreign airline without exemption documentation.
+- Charging weekend hotel stays unrelated to research.
+
+4. Subawards & Procurement
+
+Allowed:
+- Competitive bidding for goods and services.
+- Formal written subaward agreements with monitoring.
+- Sole-source procurement only with strong justification.
+
+Not Allowed:
+- Paying individuals without contracts.
+- Conflicts of interest (family vendors, personal companies).
+- Splitting procurement into smaller amounts to avoid thresholds.
+
+Rules:
+- All vendors must pass conflict-of-interest checks.
+- Subrecipients must follow Uniform Guidance.
+
+Violations:
+- Hiring PI's cousin's business.
+- Missing quotes or missing monitoring documents.
+
+5. Documentation & Recordkeeping
+
+Required:
+- Receipts, invoices, travel justification, proof of delivery.
+- Certified effort reports for personnel charges.
+- Procurement documentation for all thresholds.
+- Retention of documentation for 3–7 years.
+
+Not Allowed:
+- Vague purpose statements (e.g., "for research use").
+- Missing receipts over the university threshold.
+- Altered or incomplete documentation.
+
+Violations:
+- No documentation for equipment purchases.
+- Inaccurate or unsigned effort reports.

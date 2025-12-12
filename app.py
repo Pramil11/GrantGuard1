@@ -2521,12 +2521,13 @@ def budget_status(award_id):
         'remaining': sum(cat.get('remaining', 0) for cat in budget_status_data.values()),
     }
     
+    u = session.get("user")
     return render_template(
         "budget_status.html",
         award=award,
         budget_status=budget_status_data,
         totals=totals,
-        user=u
+        user=u or {}
     )
 
 
@@ -2886,7 +2887,8 @@ def university_policies():
             ],
         },
     ]
-    return render_template("policies_university.html", policies=policy_data)
+    u = session.get("user")
+    return render_template("policies_university.html", policies=policy_data, user=u or {})
 
 
 @app.route("/logout")
@@ -2935,7 +2937,7 @@ BUDGET BREAKDOWN:
         for p in personnel:
             if isinstance(p, dict):
                 name = p.get('name', 'Unknown')
-                role = p.get('role', 'N/A')
+                role = p.get('position', 'N/A') or p.get('role', 'N/A')
                 hours_list = p.get('hours', [])
                 total_hours = 0
                 if isinstance(hours_list, list):
@@ -2948,27 +2950,32 @@ BUDGET BREAKDOWN:
         award_text += "\nDOMESTIC TRAVEL:\n"
         for t in domestic_travel:
             if isinstance(t, dict):
-                destination = t.get('destination', 'N/A')
-                days = t.get('days', 0)
-                flight = t.get('flight', 0)
-                award_text += f"- {destination}: {days} days, Flight: ${float(flight or 0):,.2f}\n"
+                description = t.get('description', 'N/A')
+                flight = t.get('flight', 0) or t.get('flight_cost', 0)
+                taxi = t.get('taxi', 0) or t.get('taxi_per_day', 0)
+                food = t.get('food', 0) or t.get('food_per_day', 0)
+                days = t.get('days', 0) or t.get('num_days', 0)
+                award_text += f"- {description}: Flight: ${float(flight or 0):,.2f}, Taxi/day: ${float(taxi or 0):,.2f}, Food/day: ${float(food or 0):,.2f}, Days: {days}\n"
     
     if international_travel:
         award_text += "\nINTERNATIONAL TRAVEL:\n"
         for t in international_travel:
             if isinstance(t, dict):
-                destination = t.get('destination', 'N/A')
-                days = t.get('days', 0)
-                flight = t.get('flight', 0)
-                award_text += f"- {destination}: {days} days, Flight: ${float(flight or 0):,.2f}\n"
+                description = t.get('description', 'N/A')
+                flight = t.get('flight', 0) or t.get('flight_cost', 0)
+                taxi = t.get('taxi', 0) or t.get('taxi_per_day', 0)
+                food = t.get('food', 0) or t.get('food_per_day', 0)
+                days = t.get('days', 0) or t.get('num_days', 0)
+                award_text += f"- {description}: Flight: ${float(flight or 0):,.2f}, Taxi/day: ${float(taxi or 0):,.2f}, Food/day: ${float(food or 0):,.2f}, Days: {days}\n"
     
     if materials:
         award_text += "\nMATERIALS & SUPPLIES:\n"
         for m in materials:
             if isinstance(m, dict):
-                item = m.get('item', 'N/A')
+                description = m.get('description', 'N/A')
+                category = m.get('category', '') or m.get('material_type', '') or m.get('type', '')
                 cost = m.get('cost', 0)
-                award_text += f"- {item}: ${float(cost or 0):,.2f}\n"
+                award_text += f"- {category}: {description}, Cost: ${float(cost or 0):,.2f}\n"
     
     return award_text
 
@@ -3014,11 +3021,22 @@ def check_policy_compliance(award, personnel, domestic_travel, international_tra
             continue
         
         try:
+            # Determine priority level for context
+            priority_note = ""
+            if name == "Federal":
+                priority_note = "NOTE: Federal policy has HIGHEST PRIORITY. Any violation must result in 'non-compliant'."
+            elif name == "Sponsor":
+                priority_note = "NOTE: Sponsor policy must follow Federal requirements. Check both Federal and Sponsor rules."
+            elif name == "University":
+                priority_note = "NOTE: University policy is lowest priority but must still be followed. Check if it conflicts with Federal/Sponsor rules."
+            
             prompt = f"""You are an AI Policy Compliance Officer for a Post-Award Research Budget Management System.
 
 Your job is to check whether a research award complies with {name} policy.
 
-You must base every decision ONLY on the policy text provided. Do not assume or invent any rules.
+CRITICAL: You must base every decision ONLY on the policy text provided. Do not assume or invent any rules.
+
+{priority_note}
 
 POLICY TEXT:
 {policy_text}
@@ -3029,7 +3047,7 @@ AWARD DATA:
 Analyze the award against the {name} policy above. Your output must be a JSON object in this exact format:
 {{
   "result": "compliant" | "non-compliant" | "unknown",
-  "reason": "Short and clear explanation referencing specific policy text."
+  "reason": "Short and clear explanation referencing specific policy text and section numbers."
 }}
 
 Only return the JSON object, nothing else."""
@@ -3058,10 +3076,13 @@ Only return the JSON object, nothing else."""
             
         except json.JSONDecodeError as e:
             print(f"Error parsing JSON response for {name} policy: {e}")
-            print(f"Response was: {response_text}")
+            response_text_str = response_text if 'response_text' in locals() else "No response received"
+            print(f"Response was: {response_text_str}")
             results[key] = {"result": "unknown", "reason": f"Error parsing LLM response: {str(e)}"}
         except Exception as e:
             print(f"Error checking {name} policy compliance: {e}")
+            import traceback
+            traceback.print_exc()
             results[key] = {"result": "unknown", "reason": f"Error: {str(e)}"}
     
     return results

@@ -16,7 +16,9 @@
       <nav class="menu">
         <a href="{{ url_for('dashboard') }}">Dashboard</a>
         <a class="active" href="{{ url_for('award_view', award_id=award.award_id) }}">View Grant</a>
+        {% if user.role != 'Admin' %}
         <a href="{{ url_for('awards_new') }}">Generate Grants</a>
+        {% endif %}
         <a href="{{ url_for('university_policies') }}">Policies</a>
         <a href="{{ url_for('subawards') }}">Subawards</a>
         <a href="{{ url_for('settings') }}">Settings</a>
