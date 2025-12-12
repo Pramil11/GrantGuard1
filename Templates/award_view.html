@@ -91,9 +91,52 @@
         {% endif %}
       </div>
       
+      <!-- Award Declined Section - Show for ALL users when award is declined -->
+      {% if award.status == 'Declined' and compliance_results %}
+      <div class="card" style="margin-top:24px; background: #fef2f2; border-left: 4px solid #ef4444;">
+        <h3 style="margin-top:0; color: #991b1b;">Award Declined - Policy Compliance Review</h3>
+        <p style="color: #991b1b; margin-bottom: 16px;">This award was declined based on the following policy compliance issues:</p>
+        <div style="display: grid; gap: 16px;">
+          {% if compliance_results.university %}
+          <div style="padding: 12px; border-radius: 8px; border-left: 4px solid {% if compliance_results.university.result == 'compliant' %}#10b981{% elif compliance_results.university.result == 'non-compliant' %}#ef4444{% else %}#6b7280{% endif %}; background: {% if compliance_results.university.result == 'compliant' %}#f0fdf4{% elif compliance_results.university.result == 'non-compliant' %}#fef2f2{% else %}#f9fafb{% endif %};">
+            <strong>University Policy:</strong> 
+            <span style="text-transform: capitalize; font-weight: 600; color: {% if compliance_results.university.result == 'compliant' %}#10b981{% elif compliance_results.university.result == 'non-compliant' %}#ef4444{% else %}#6b7280{% endif %};">
+              {{ compliance_results.university.result }}
+            </span>
+            <p style="margin: 8px 0 0 0; color: #4b5563;">{{ compliance_results.university.reason }}</p>
+          </div>
+          {% endif %}
+          {% if compliance_results.federal %}
+          <div style="padding: 12px; border-radius: 8px; border-left: 4px solid {% if compliance_results.federal.result == 'compliant' %}#10b981{% elif compliance_results.federal.result == 'non-compliant' %}#ef4444{% else %}#6b7280{% endif %}; background: {% if compliance_results.federal.result == 'compliant' %}#f0fdf4{% elif compliance_results.federal.result == 'non-compliant' %}#fef2f2{% else %}#f9fafb{% endif %};">
+            <strong>Federal Policy:</strong> 
+            <span style="text-transform: capitalize; font-weight: 600; color: {% if compliance_results.federal.result == 'compliant' %}#10b981{% elif compliance_results.federal.result == 'non-compliant' %}#ef4444{% else %}#6b7280{% endif %};">
+              {{ compliance_results.federal.result }}
+            </span>
+            <p style="margin: 8px 0 0 0; color: #4b5563;">{{ compliance_results.federal.reason }}</p>
+          </div>
+          {% endif %}
+          {% if compliance_results.sponsor %}
+          <div style="padding: 12px; border-radius: 8px; border-left: 4px solid {% if compliance_results.sponsor.result == 'compliant' %}#10b981{% elif compliance_results.sponsor.result == 'non-compliant' %}#ef4444{% else %}#6b7280{% endif %}; background: {% if compliance_results.sponsor.result == 'compliant' %}#f0fdf4{% elif compliance_results.sponsor.result == 'non-compliant' %}#fef2f2{% else %}#f9fafb{% endif %};">
+            <strong>Sponsor Policy:</strong> 
+            <span style="text-transform: capitalize; font-weight: 600; color: {% if compliance_results.sponsor.result == 'compliant' %}#10b981{% elif compliance_results.sponsor.result == 'non-compliant' %}#ef4444{% else %}#6b7280{% endif %};">
+              {{ compliance_results.sponsor.result }}
+            </span>
+            <p style="margin: 8px 0 0 0; color: #4b5563;">{{ compliance_results.sponsor.reason }}</p>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% elif award.status == 'Declined' and not compliance_results %}
+      <div class="card" style="margin-top:24px; background: #fef2f2; border-left: 4px solid #ef4444;">
+        <h3 style="margin-top:0; color: #991b1b;">Award Declined</h3>
+        <p style="color: #991b1b;">This award has been declined. Please contact the administrator for more information.</p>
+      </div>
+      {% endif %}
+
       <!-- AI Compliance Results Section (Admin only, for Pending awards) -->
       {% if user.role == 'Admin' and award.status == 'Pending' %}
-      <div class="card" id="compliance-section" style="margin-top:24px; {% if not compliance_results %}display:none;{% endif %}">
+
+      <div class="card" id="compliance-section" style="margin-top:24px; {% if not compliance_results or award.status == 'Declined' %}display:none;{% endif %}">
         <h3 style="margin-top:0;">AI Policy Compliance Check</h3>
         {% if compliance_results and compliance_results.error %}
           <p style="color: #ef4444;">Error: {{ compliance_results.error }}</p>
@@ -142,7 +185,7 @@
             <strong>Period:</strong>
             {{ award.start_date }} → {{ award.end_date }}
             {% if duration_years %}
-              ({{ duration_years }} year{{ 's' if duration_years != 1 else '' }})
+              <span style="color: #6b7280;">({{ duration_years }} year{{ 's' if duration_years != 1 else '' }})</span>
             {% endif %}
           </p>
         {% else %}
@@ -283,6 +326,35 @@
       </section>
 
       <!-- =======================
+           Equipment
+      ======================== -->
+      <section class="card" style="margin-top:24px;">
+        <h3>Equipment</h3>
+        {% if equipment and equipment|length > 0 %}
+          <table class="budget-table">
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for e in equipment %}
+              {% if e %}
+              <tr>
+                <td>{{ e.get('description') or e.description or 'N/A' }}</td>
+                <td>${{ '%.2f'|format(e.get('cost') or e.cost or 0) }}</td>
+              </tr>
+              {% endif %}
+            {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p>No equipment recorded.</p>
+        {% endif %}
+      </section>
+
+      <!-- =======================
            Materials / Supplies
       ======================== -->
       <section class="card" style="margin-top:24px;">
@@ -309,7 +381,30 @@
         {% endif %}
       </section>
 
-
+      <!-- =======================
+           Other Direct Costs
+      ======================== -->
+      {% if other_direct and other_direct|length > 0 %}
+      <section class="card" style="margin-top:24px;">
+        <h3>Other Direct Costs</h3>
+        <table class="budget-table">
+          <thead>
+            <tr>
+              <th>Description</th>
+              <th>Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for o in other_direct %}
+            <tr>
+              <td>{{ o.description or 'N/A' }}</td>
+              <td>${{ '%.2f'|format(o.cost or 0) }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </section>
+      {% endif %}
 
     </main>
   </div>

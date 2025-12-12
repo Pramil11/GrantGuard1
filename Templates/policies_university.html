@@ -42,20 +42,18 @@
             <div>
               <span class="eyebrow">{{ policy.level }} Policy</span>
               <h3>{{ policy.title }}</h3>
+              {% if policy.description %}
+              <p style="margin: 4px 0 0 0; font-size: 0.875em; color: #6b7280; font-weight: normal;">{{ policy.description }}</p>
+              {% endif %}
             </div>
             <span class="chevron">▼</span>
           </summary>
           <div class="policy-body">
-            {% for section in policy.sections %}
-            <div class="policy-section">
-              <h4>{{ section.heading }}</h4>
-              <ul>
-                {% for rule in section.rules %}
-                <li>{{ rule }}</li>
-                {% endfor %}
-              </ul>
-            </div>
-            {% endfor %}
+            <ul class="policy-key-points">
+              {% for point in policy.key_points %}
+              <li>{{ point }}</li>
+              {% endfor %}
+            </ul>
           </div>
         </details>
         {% endfor %}

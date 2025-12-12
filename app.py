@@ -435,8 +435,8 @@ def _get_award_for_export(award_id, user):
     domestic_travel = parse_json("domestic_travel_json")
     international_travel = parse_json("international_travel_json")
     materials = parse_json("materials_json")
-    equipment = json.loads(award.get("equipment_json") or "[]")
-    other_direct = json.loads(award.get("other_direct_json") or "[]")
+    equipment = parse_json("equipment_json")
+    other_direct = parse_json("other_direct_json")
 
     return award, personnel, domestic_travel, international_travel, materials, equipment, other_direct 
 
@@ -481,12 +481,16 @@ def awards_create():
     domestic_travel_json_str = request.form.get("domestic_travel_json", "")
     international_travel_json_str = request.form.get("international_travel_json", "")
     materials_json_str = request.form.get("materials_json", "")
+    equipment_json_str = request.form.get("equipment_json", "")
+    other_costs_json_str = request.form.get("other_costs_json", "")  # Form uses other_costs_json, DB uses other_direct_json
 
     # Parse into Python lists (from the JS format)
     pers_list = _parse_json_field(personnel_json_str)
     dom_list = _parse_json_field(domestic_travel_json_str)
     intl_list = _parse_json_field(international_travel_json_str)
     mat_list = _parse_json_field(materials_json_str)
+    equipment_list = _parse_json_field(equipment_json_str)
+    other_direct_list = _parse_json_field(other_costs_json_str)
 
     if not title or not sponsor_type or not amount or not start_date or not end_date:
         return make_response("Missing required fields", 400)
@@ -507,12 +511,14 @@ def awards_create():
               amount, start_date, end_date,
               abstract, keywords, collaborators,
               personnel_json, domestic_travel_json,
-              international_travel_json, materials_json
+              international_travel_json, materials_json,
+              equipment_json, other_direct_json
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s,
                     %s, %s, %s,
-                    %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb)
+                    %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb,
+                    %s::jsonb, %s::jsonb)
             RETURNING award_id
             """,
             (
@@ -524,6 +530,8 @@ def awards_create():
                 json.dumps(dom_list),
                 json.dumps(intl_list),
                 json.dumps(mat_list),
+                json.dumps(equipment_list),
+                json.dumps(other_direct_list),
             ),
         )
         award_id = cur.fetchone()[0]
@@ -682,11 +690,22 @@ def award_view(award_id):
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
         # Admin can see all, PI only their own
+        # Explicitly select all columns including JSONB fields
         if u["role"] == "Admin":
-            cur.execute("SELECT * FROM awards WHERE award_id=%s", (award_id,))
+            cur.execute("""
+                SELECT *, 
+                       equipment_json::text as equipment_json_text,
+                       other_direct_json::text as other_direct_json_text
+                FROM awards WHERE award_id=%s
+            """, (award_id,))
         else:
             cur.execute(
-                "SELECT * FROM awards WHERE award_id=%s AND created_by_email=%s",
+                """
+                SELECT *, 
+                       equipment_json::text as equipment_json_text,
+                       other_direct_json::text as other_direct_json_text
+                FROM awards WHERE award_id=%s AND created_by_email=%s
+                """,
                 (award_id, u["email"]),
             )
 
@@ -702,15 +721,39 @@ def award_view(award_id):
 
     # --- Parse JSON blobs safely ---
     def parse_json(field_name):
+        # Try both the original field and the text version
         raw = award.get(field_name)
         if raw is None:
-            return []
+            # Try the text version if available
+            text_field = field_name + "_text"
+            raw = award.get(text_field)
+            if raw is None:
+                return []
+        
+        # RealDictCursor might return JSONB as dict/list already, or as string
         if isinstance(raw, (dict, list)):
-            return raw
-        try:
-            return json.loads(raw)
-        except Exception:
-            return []
+            # If it's already a dict/list, return it (but ensure it's a list)
+            if isinstance(raw, list):
+                return raw
+            # If it's a dict, wrap it in a list (shouldn't happen for arrays but handle it)
+            return [raw] if raw else []
+        
+        # If it's a string, try to parse it
+        if isinstance(raw, str):
+            try:
+                parsed = json.loads(raw)
+                # Ensure we return a list
+                if isinstance(parsed, list):
+                    return parsed
+                elif isinstance(parsed, dict):
+                    # If it's a dict, wrap it in a list
+                    return [parsed]
+                return []
+            except (json.JSONDecodeError, TypeError) as e:
+                print(f"Error parsing {field_name}: {e}, raw value: {raw}")
+                return []
+        
+        return []
 
     personnel = parse_json("personnel_json")
     # Ensure rate_per_hour and total are floats for display
@@ -729,9 +772,47 @@ def award_view(award_id):
     
     domestic_travel = parse_json("domestic_travel_json")
     international_travel = parse_json("international_travel_json")
-    materials = parse_json("materials_json")
-    equipment = json.loads(award.get("equipment_json") or "[]")
-    other_direct = json.loads(award.get("other_direct_json") or "[]")
+    materials_raw = parse_json("materials_json")
+    equipment_from_json = parse_json("equipment_json")
+    other_direct_from_json = parse_json("other_direct_json")
+    
+    # Extract equipment and other direct costs from materials_json (old format)
+    # Equipment was stored in materials_json with type='equipment'
+    equipment_from_materials = []
+    materials = []
+    other_direct_from_materials = []
+    
+    if materials_raw:
+        for item in materials_raw:
+            if isinstance(item, dict):
+                item_type = item.get('type', '').lower()
+                if item_type == 'equipment':
+                    # Extract equipment from materials
+                    equipment_from_materials.append({
+                        'description': item.get('description', ''),
+                        'cost': item.get('cost', 0)
+                    })
+                elif item_type == 'other':
+                    # Extract other direct costs from materials
+                    other_direct_from_materials.append({
+                        'description': item.get('description', ''),
+                        'cost': item.get('cost', 0)
+                    })
+                else:
+                    # Regular materials
+                    materials.append(item)
+    
+    # Combine equipment from both sources (equipment_json takes priority if it has items)
+    if equipment_from_json and len(equipment_from_json) > 0:
+        equipment = equipment_from_json
+    else:
+        equipment = equipment_from_materials
+    
+    # Combine other direct costs from both sources (other_direct_json takes priority if it has items)
+    if other_direct_from_json and len(other_direct_from_json) > 0:
+        other_direct = other_direct_from_json
+    else:
+        other_direct = other_direct_from_materials
 
     # --- Compute period & year list for tables ---
     start = award.get("start_date")
@@ -740,8 +821,23 @@ def award_view(award_id):
     years = []
     duration_years = None
     if isinstance(start, date) and isinstance(end, date) and end >= start:
-        years = list(range(start.year, end.year + 1))
-        duration_years = end.year - start.year + 1
+        # Calculate actual duration in years more accurately
+        # If end date is Jan 1 of the next year after start, it's exactly 1 year
+        if end.year == start.year + 1 and end.month == 1 and end.day == 1 and start.month == 1 and start.day == 1:
+            # Exactly one year (e.g., 2026-01-01 to 2027-01-01)
+            duration_years = 1
+            years = [start.year]
+        else:
+            # Calculate years more accurately
+            years = list(range(start.year, end.year + 1))
+            # Calculate duration: if end date is at the start of a year, don't count that full year
+            if end.month == 1 and end.day == 1:
+                # End date is Jan 1, so the period doesn't include that year
+                duration_years = end.year - start.year
+                years = list(range(start.year, end.year))
+            else:
+                # Include both start and end years
+                duration_years = end.year - start.year + 1
 
     # Load AI compliance results if they exist
     compliance_results = None
@@ -758,6 +854,8 @@ def award_view(award_id):
         domestic_travel=domestic_travel,
         international_travel=international_travel,
         materials=materials,
+        equipment=equipment,
+        other_direct=other_direct,
         years=years,
         duration_years=duration_years,
         compliance_results=compliance_results,
@@ -1226,17 +1324,31 @@ def award_edit(award_id):
         domestic_travel_json_str = request.form.get("domestic_travel_json", "")
         international_travel_json_str = request.form.get("international_travel_json", "")
         materials_json_str = request.form.get("materials_json", "")
+        equipment_json_str = request.form.get("equipment_json", "")
+        other_costs_json_str = request.form.get("other_costs_json", "")  # Form uses other_costs_json, DB uses other_direct_json
 
         pers_list = _parse_json_field(personnel_json_str)
         dom_list = _parse_json_field(domestic_travel_json_str)
         intl_list = _parse_json_field(international_travel_json_str)
         mat_list = _parse_json_field(materials_json_str)
+        equipment_list = _parse_json_field(equipment_json_str)
+        other_direct_list = _parse_json_field(other_costs_json_str)
 
         if not title or not sponsor_type or not amount or not start_date or not end_date:
             return make_response("Missing required fields", 400)
 
         try:
             cur = conn.cursor()
+            
+            # Ensure equipment_json and other_direct_json columns exist (if they don't, this will fail silently)
+            try:
+                cur.execute("ALTER TABLE awards ADD COLUMN IF NOT EXISTS equipment_json JSONB")
+            except Exception:
+                pass  # Column might already exist
+            try:
+                cur.execute("ALTER TABLE awards ADD COLUMN IF NOT EXISTS other_direct_json JSONB")
+            except Exception:
+                pass  # Column might already exist
 
             # Update master award + JSON blobs
             cur.execute(
@@ -1256,7 +1368,9 @@ def award_edit(award_id):
                     personnel_json=%s::jsonb,
                     domestic_travel_json=%s::jsonb,
                     international_travel_json=%s::jsonb,
-                    materials_json=%s::jsonb
+                    materials_json=%s::jsonb,
+                    equipment_json=%s::jsonb,
+                    other_direct_json=%s::jsonb
                 WHERE award_id=%s AND created_by_email=%s
                 """,
                 (
@@ -1268,6 +1382,8 @@ def award_edit(award_id):
                     json.dumps(dom_list),
                     json.dumps(intl_list),
                     json.dumps(mat_list),
+                    json.dumps(equipment_list),
+                    json.dumps(other_direct_list),
                     award_id, u["email"],
                 ),
             )
@@ -3289,169 +3405,140 @@ def profile():
     return render_template("profile.html", user=u, awards=awards, stats=stats)
 
 
+def parse_policy_file(filepath):
+    """Parse a policy text file and extract key summary points."""
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except Exception as e:
+        print(f"Error reading policy file {filepath}: {e}")
+        return None
+    
+    lines = content.split('\n')
+    
+    # Extract title (first non-empty line)
+    title = ""
+    description = ""
+    key_points = []
+    seen_thresholds = set()
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # Skip empty lines at the start
+        if not line:
+            i += 1
+            continue
+        
+        # Get title (first non-empty line)
+        if not title:
+            title = line
+            i += 1
+            continue
+        
+        # Skip description lines (lines in parentheses or descriptive text)
+        if line.startswith('(') or (i < 5 and not line[0].isdigit()):
+            i += 1
+            continue
+        
+        # Extract key thresholds - look for lines with dollar amounts and thresholds
+        if "$" in line:
+            line_lower = line.lower()
+            # Personnel threshold
+            if ("personnel" in line_lower or "salary" in line_lower) and "12,000" in line and "personnel" not in seen_thresholds:
+                key_points.append("Personnel: $12,000 per person per year (covers salaries, wages, graduate assistants)")
+                seen_thresholds.add("personnel")
+            # Travel threshold
+            elif "travel" in line_lower and "5,000" in line and "travel" not in seen_thresholds:
+                key_points.append("Travel: $5,000 per trip (conferences, fieldwork, research meetings)")
+                seen_thresholds.add("travel")
+            # Equipment threshold
+            elif "equipment" in line_lower and "8,000" in line and "equipment" not in seen_thresholds:
+                key_points.append("Equipment: $8,000 per item (research equipment, computers, lab instruments)")
+                seen_thresholds.add("equipment")
+            # Materials threshold
+            elif ("materials" in line_lower or "supplies" in line_lower) and "5,000" in line and "materials" not in seen_thresholds:
+                key_points.append("Materials & Supplies: $5,000 per item (chemicals, reagents, consumables)")
+                seen_thresholds.add("materials")
+            # Other Direct Costs threshold
+            elif "other direct" in line_lower and "5,000" in line and "other" not in seen_thresholds:
+                key_points.append("Other Direct Costs: $5,000 per item (publication fees, participant incentives)")
+                seen_thresholds.add("other")
+        
+        # Stop at POLICY HIERARCHY section
+        if line.startswith("POLICY HIERARCHY"):
+            break
+        
+        i += 1
+    
+    # Add general policy summary based on policy type
+    if "FEDERAL" in title.upper():
+        key_points.append("Not allowed: First-class travel, personal expenses, or charging for work not performed")
+        key_points.append("Required: Economy-class travel only; Fly America Act applies for international travel")
+        key_points.append("All expenses must be allowable, allocable, reasonable, and consistently treated")
+    elif "SPONSOR" in title.upper():
+        key_points.insert(0, "Must follow both Federal and sponsor-specific requirements")
+        key_points.append("Not allowed: Personnel or equipment not listed in approved proposal")
+        key_points.append("Changes require sponsor approval before spending")
+    elif "UNIVERSITY" in title.upper():
+        key_points.insert(0, "Must follow Federal and Sponsor requirements")
+        key_points.append("Not allowed: Administrative staff unless 100% dedicated to project")
+        key_points.append("All expenses must directly support research objectives")
+    
+    return {
+        "title": title,
+        "description": "",  # Don't show description
+        "key_points": key_points
+    }
+
+
 @app.route("/policies/university")
 def university_policies():
-    policy_data = [
-        {
-            "level": "University",
-            "title": "University Research Budget Policy",
-            "sections": [
-                {
-                    "heading": "Personnel (Salary)",
-                    "rules": [
-                        "Salaries are only allowed for people who directly work on research tasks.",
-                        "Paying anyone who does not contribute to the research is not allowed.",
-                        "Administrative staff cannot be charged unless 100% dedicated to the project.",
-                        "Inflating effort or hours is a violation.",
-                    ],
-                },
-                {
-                    "heading": "Equipment",
-                    "rules": [
-                        "Only research-related equipment can be purchased.",
-                        "Equipment under $5,000 is allowed.",
-                        "Equipment over $5,000 requires university approval.",
-                        "Personal-use electronics are not allowed.",
-                        "Buying equipment not needed for the project is a violation.",
-                    ],
-                },
-                {
-                    "heading": "Travel",
-                    "rules": [
-                        "Travel must be directly related to the project.",
-                        "Only economy-class travel is allowed.",
-                        "Upgraded seats are not allowed.",
-                        "Personal or vacation travel is not allowed.",
-                        "Charging unrelated travel is a violation.",
-                    ],
-                },
-                {
-                    "heading": "Materials & Supplies",
-                    "rules": [
-                        "Only supplies used for research activities are allowed.",
-                        "Office supplies are not allowed.",
-                        "Decorations are not allowed.",
-                        "Non-research purchases will be treated as violations.",
-                    ],
-                },
-                {
-                    "heading": "Other Direct Costs",
-                    "rules": [
-                        "Participant incentives are allowed.",
-                        "Publication fees are allowed.",
-                        "Research-related software is allowed.",
-                        "Membership fees are not allowed unless required.",
-                        "Charging unrelated services is a violation.",
-                    ],
-                },
-            ],
-        },
-        {
-            "level": "Sponsor",
-            "title": "Sponsor Research Budget Policy",
-            "sections": [
-                {
-                    "heading": "Personnel (Salary)",
-                    "rules": [
-                        "Only salaries listed in the sponsor-approved proposal are allowed.",
-                        "Adding new personnel without approval is not allowed.",
-                        "Admin/clerical salaries require written sponsor approval.",
-                        "Charging unapproved salary lines is a violation.",
-                    ],
-                },
-                {
-                    "heading": "Equipment",
-                    "rules": [
-                        "Only equipment approved in the proposal is allowed.",
-                        "New or unplanned equipment purchases require sponsor approval.",
-                        "General-purpose equipment is not allowed.",
-                        "Buying items not listed in the proposal is a violation.",
-                    ],
-                },
-                {
-                    "heading": "Travel",
-                    "rules": [
-                        "Only travel included in the proposal budget is allowed.",
-                        "Sponsor-required travel is allowed.",
-                        "Foreign travel requires approval.",
-                        "Non-research travel is not allowed.",
-                        "Charging personal travel is a violation.",
-                    ],
-                },
-                {
-                    "heading": "Participant Support Costs (PSC)",
-                    "rules": [
-                        "PSC can only be used for participant stipends, travel, lodging, and meals.",
-                        "PSC cannot be used to pay PI or staff salaries.",
-                        "PSC cannot be rebudgeted without sponsor approval.",
-                        "Using PSC funds for equipment is a violation.",
-                    ],
-                },
-                {
-                    "heading": "Subawards",
-                    "rules": [
-                        "Only approved subawards listed in the proposal are allowed.",
-                        "Informal payments without agreements are not allowed.",
-                        "Adding new partners requires sponsor approval.",
-                        "Paying unapproved subrecipients is a violation.",
-                    ],
-                },
-            ],
-        },
-        {
-            "level": "Federal",
-            "title": "Federal Policy",
-            "sections": [
-                {
-                    "heading": "Personnel (Salary)",
-                    "rules": [
-                        "Salaries must match the percentage of time worked on the project.",
-                        "Paying someone more than their normal rate is not allowed.",
-                        "Charging unrelated work to the project is a violation.",
-                        "Administrative salaries are only allowed in special circumstances.",
-                    ],
-                },
-                {
-                    "heading": "Equipment",
-                    "rules": [
-                        "Equipment must be necessary for the project.",
-                        "Federal procurement rules must be followed.",
-                        "Splitting purchases to avoid bidding rules is not allowed.",
-                        "Buying equipment for future projects is a violation.",
-                    ],
-                },
-                {
-                    "heading": "Travel",
-                    "rules": [
-                        "Only economy travel is allowed.",
-                        "Travel must support project goals.",
-                        "Foreign travel must follow the Fly America Act.",
-                        "Business/first-class travel is not allowed.",
-                        "Charging personal travel is a violation.",
-                    ],
-                },
-                {
-                    "heading": "Subawards & Procurement",
-                    "rules": [
-                        "Vendors must be selected competitively when required.",
-                        "Sole-source purchases must be documented.",
-                        "Personal relationships cannot influence vendor selection.",
-                        "Paying individuals without contracts is a violation.",
-                    ],
-                },
-                {
-                    "heading": "Documentation",
-                    "rules": [
-                        "Receipts are required for all expenses.",
-                        "Justifications must clearly show project benefit.",
-                        "Missing documentation is not allowed.",
-                        "Vague explanations are considered violations.",
-                    ],
-                },
-            ],
-        },
-    ]
+    """Display all policies from the policy files."""
     u = session.get("user")
+    
+    # Parse all three policy files
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    policy_files = [
+        {
+            "file": os.path.join(base_dir, "policies", "federal_policy.txt"),
+            "level": "Federal",
+            "order": 1
+        },
+        {
+            "file": os.path.join(base_dir, "policies", "sponsor_policy.txt"),
+            "level": "Sponsor",
+            "order": 2
+        },
+        {
+            "file": os.path.join(base_dir, "policies", "university_policy.txt"),
+            "level": "University",
+            "order": 3
+        }
+    ]
+    
+    policy_data = []
+    for pf in policy_files:
+        parsed = parse_policy_file(pf["file"])
+        if parsed:
+            # Clean up sponsor policy title
+            title = parsed["title"]
+            if "SPONSOR POLICY" in title.upper():
+                title = "SPONSOR POLICY"
+            
+            policy_data.append({
+                "level": pf["level"],
+                "title": title,
+                "description": parsed["description"],
+                "key_points": parsed["key_points"],
+                "order": pf["order"]
+            })
+    
+    # Sort by order
+    policy_data.sort(key=lambda x: x["order"])
+    
     return render_template("policies_university.html", policies=policy_data, user=u or {})
 
 
@@ -3545,12 +3632,17 @@ AWARD INFORMATION:
 - Department: {award.get('department', 'N/A')}
 - College: {award.get('college', 'N/A')}
 
-BUDGET BREAKDOWN:
+BUDGET BREAKDOWN (TOTALS - for reference only):
 - Personnel Budget: ${personnel_budget:,.2f}
 - Equipment Budget: ${equipment_budget:,.2f}
 - Travel Budget: ${travel_budget:,.2f}
 - Materials Budget: ${materials_budget:,.2f}
 - Other Direct Costs Budget: ${other_direct_budget:,.2f}
+
+IMPORTANT: The budget totals above are for reference. Policy compliance is checked PER ITEM, not by total budget.
+Equipment items are checked individually against $8,000 per item.
+Materials items are checked individually against $5,000 per item.
+Travel is checked per trip against $5,000 per trip.
 """
     
     if personnel:
@@ -3617,20 +3709,22 @@ BUDGET BREAKDOWN:
                     award_text += f"- {description}: Flight: ${float(flight or 0):,.2f}, Taxi/day: ${float(taxi or 0):,.2f}, Food/day: ${float(food or 0):,.2f}, Days: {days}\n"
     
     if equipment:
-        award_text += "\nEQUIPMENT:\n"
+        award_text += "\nEQUIPMENT (Section 2 - $8,000 per item threshold):\n"
         for e in equipment:
             if isinstance(e, dict):
                 description = e.get('description', 'N/A')
                 cost = float(e.get('cost', 0) or 0)
-                award_text += f"- {description}, Cost: ${cost:,.2f}\n"
+                award_text += f"- Item: {description}, Cost: ${cost:,.2f} (check if this INDIVIDUAL item exceeds $8,000)\n"
+        award_text += "NOTE: Check each equipment item INDIVIDUALLY against the $8,000 per item threshold. Do NOT sum all equipment items.\n"
     
     if materials:
-        award_text += "\nMATERIALS & SUPPLIES:\n"
+        award_text += "\nMATERIALS & SUPPLIES (Section 4 - $5,000 per item threshold):\n"
         for m in materials:
             if isinstance(m, dict):
                 description = m.get('description', 'N/A')
                 cost = float(m.get('cost', 0) or 0)
-                award_text += f"- {description}, Cost: ${cost:,.2f}\n"
+                award_text += f"- Item: {description}, Cost: ${cost:,.2f} (check if this INDIVIDUAL item exceeds $5,000)\n"
+        award_text += "NOTE: Check each materials item INDIVIDUALLY against the $5,000 per item threshold. Do NOT sum all materials items.\n"
     
     if other_direct:
         award_text += "\nOTHER DIRECT COSTS:\n"
@@ -3701,28 +3795,76 @@ CRITICAL: You must base every decision ONLY on the policy text provided. Do not 
 
 {priority_note}
 
+═══════════════════════════════════════════════════════════════════════════════
+CRITICAL RULE: THRESHOLDS ARE PER ITEM, NOT TOTAL
+═══════════════════════════════════════════════════════════════════════════════
+
+Equipment and Materials & Supplies are COMPLETELY SEPARATE categories with DIFFERENT thresholds:
+- Equipment has a threshold of $8,000 PER ITEM (Section 2 in policies)
+- Materials & Supplies has a threshold of $5,000 PER ITEM (Section 4 in policies)
+- These categories must be evaluated INDEPENDENTLY. Do NOT combine their costs.
+- An equipment item over $8,000 violates Equipment policy, NOT Materials policy.
+- A materials item over $5,000 violates Materials policy, NOT Equipment policy.
+- IMPORTANT: The threshold is PER ITEM, NOT the total. Each individual item must be checked separately.
+- For example: If you have 3 materials items costing $2,000, $1,500, and $1,800, they are ALL compliant because each is under $5,000 per item.
+- The TOTAL of all items in a category does NOT need to be under the threshold - only each INDIVIDUAL item.
+- Do NOT add up all equipment items and check against $8,000 - check each equipment item individually.
+- Do NOT add up all materials items and check against $5,000 - check each materials item individually.
+
+EXAMPLE OF CORRECT EVALUATION:
+- If Materials section shows: Item A = $2,000, Item B = $1,500, Item C = $1,800
+  → ALL THREE ITEMS ARE COMPLIANT (each is under $5,000 per item)
+  → The total ($5,300) does NOT matter - only individual items matter
+  
+- If Materials section shows: Item A = $2,000, Item B = $6,000
+  → Item A is COMPLIANT ($2,000 < $5,000)
+  → Item B is NON-COMPLIANT ($6,000 > $5,000 per item threshold)
+  → Report Item B as the violation, NOT the total
+
+WRONG: "Materials total $8,500 exceeds $5,000 threshold" ❌
+RIGHT: "Each materials item is checked individually. Item X costs $6,200 which exceeds $5,000 per item threshold" ✅
+
+═══════════════════════════════════════════════════════════════════════════════
+
 POLICY TEXT:
 {policy_text}
 
 AWARD DATA:
 {award_text}
 
-Analyze the award against the {name} policy above. Your output must be a JSON object in this exact format:
+Analyze the award against the {name} policy above. Provide a comprehensive, human-like assessment that:
+1. Explains WHY the award is compliant or non-compliant based on policy requirements
+2. References specific policy sections and requirements
+3. For compliant items: Explain that it follows policy guidelines, meets requirements, and does not violate any rules
+4. For non-compliant items: Clearly state what policy is violated and why
+5. Avoid simply stating budget thresholds (e.g., "below $5000") - instead explain policy compliance in context
+6. CRITICALLY: Evaluate Equipment and Materials & Supplies as SEPARATE categories with their respective thresholds ($8,000 for Equipment, $5,000 for Materials & Supplies)
+7. MOST IMPORTANT: Check each item INDIVIDUALLY. The threshold is PER ITEM, NOT the total. For example:
+   - If you have 5 materials items costing $1,000 each, they are ALL compliant (each is under $5,000)
+   - If you have 1 materials item costing $6,000, it is NON-COMPLIANT (exceeds $5,000 per item)
+   - Do NOT add up all items in a category and check the total - check EACH item separately
+   - Equipment total and Materials total are separate - do NOT combine them
+
+Your output must be a JSON object in this exact format:
 {{
   "result": "compliant" | "non-compliant" | "unknown",
-  "reason": "Short and clear explanation referencing specific policy text and section numbers."
+  "reason": "Comprehensive explanation that reads naturally, explains policy compliance, references specific policy sections, and explains why the award follows or violates policy requirements. Write as if explaining to a colleague, not just listing thresholds."
 }}
+
+Example of good explanation for compliant: "This award complies with {name} policy requirements. The personnel expenses are within acceptable limits per person per year as specified in Section 1, and all listed personnel directly contribute to project aims. Travel expenses follow policy guidelines for research-related travel and do not exceed per-trip thresholds. Each equipment item is individually checked and all are under the $8,000 per item threshold. Each materials item is individually checked and all are under the $5,000 per item threshold. The award follows all applicable rules and does not violate any policy restrictions."
+
+Example of good explanation for non-compliant: "This award violates {name} policy in Section 2 (Equipment). One equipment item (High-Performance Workstation) costs $9,500, which exceeds the $8,000 per item threshold without prior approval as required by policy. Note: This is checked per item, not by total equipment budget. Additionally, one materials item (Specialized Reagents) costs $6,200, which exceeds the $5,000 per item threshold in Section 4. These violations must be addressed before approval."
 
 Only return the JSON object, nothing else."""
 
             response = client.chat.completions.create(
                 model="gpt-4o-mini",  # Using gpt-4o-mini for cost efficiency
                 messages=[
-                    {"role": "system", "content": "You are a policy compliance officer. Always respond with valid JSON only."},
+                    {"role": "system", "content": "You are a policy compliance officer. Provide comprehensive, human-like explanations that explain policy compliance in context. Always respond with valid JSON only."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3,  # Lower temperature for more consistent results
-                max_tokens=500
+                temperature=0.4,  # Slightly higher for more natural language
+                max_tokens=600  # Increased for more comprehensive explanations
             )
             
             # Parse JSON response
@@ -3837,22 +3979,34 @@ POLICY TEXT:
 TRANSACTION DATA:
 {transaction_text}
 
-Analyze the transaction against the {name} policy above. Your output must be a JSON object in this exact format:
+Analyze the transaction against the {name} policy above. Provide a comprehensive, human-like assessment that:
+1. Explains WHY the transaction is compliant or non-compliant based on policy requirements
+2. References specific policy sections and requirements
+3. For compliant items: Explain that it follows policy guidelines, is allowable and reasonable, and does not violate any rules
+4. For non-compliant items: Clearly state what policy is violated and why
+5. Avoid simply stating budget thresholds (e.g., "below $5000") - instead explain policy compliance in context
+6. Consider whether the transaction is necessary for the research, properly categorized, and follows procurement/travel rules
+
+Your output must be a JSON object in this exact format:
 {{
   "result": "compliant" | "non-compliant" | "unknown",
-  "reason": "Short and clear explanation referencing specific policy text and section numbers."
+  "reason": "Comprehensive explanation that reads naturally, explains policy compliance, references specific policy sections, and explains why the transaction follows or violates policy requirements. Write as if explaining to a colleague, not just listing thresholds."
 }}
+
+Example of good explanation for compliant: "This transaction complies with {name} policy requirements. The {transaction.get('category', 'expense')} expense is necessary for the research project as described, falls within acceptable policy limits, and follows the procurement guidelines specified in Section 2. The amount is reasonable and allocable to the award, and the transaction does not violate any policy restrictions. It is properly categorized and meets all applicable policy requirements."
+
+Example of good explanation for non-compliant: "This transaction violates {name} policy in Section 3 (Travel). The transaction exceeds the $5,000 per-trip threshold without prior approval as required by policy. Additionally, the description suggests personal travel expenses which are explicitly prohibited. These violations must be addressed before approval."
 
 Only return the JSON object, nothing else."""
 
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "You are a policy compliance officer. Always respond with valid JSON only."},
+                    {"role": "system", "content": "You are a policy compliance officer. Provide comprehensive, human-like explanations that explain policy compliance in context. Always respond with valid JSON only."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3,
-                max_tokens=500
+                temperature=0.4,  # Slightly higher for more natural language
+                max_tokens=600  # Increased for more comprehensive explanations
             )
             
             # Parse JSON response

@@ -107,4 +107,4 @@ POLICY HIERARCHY (LLM MUST FOLLOW THIS):
 2. Sponsor (middle priority) - Reject if sponsor policy violates federal or sponsor rules.
 3. University (lowest priority) - Reject if university prohibits something not prohibited above.
 
-LLM should evaluate in this exact sequence.
+

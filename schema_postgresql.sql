@@ -221,6 +221,12 @@ ALTER TABLE awards
 ALTER TABLE awards
   ADD COLUMN IF NOT EXISTS materials_json JSONB;
 
+ALTER TABLE awards
+  ADD COLUMN IF NOT EXISTS equipment_json JSONB;
+
+ALTER TABLE awards
+  ADD COLUMN IF NOT EXISTS other_direct_json JSONB;
+
 -- ======================
 -- SUBAWARDS TABLE
 -- ======================

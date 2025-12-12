@@ -94,16 +94,8 @@
                         </a>
                     {% endif %}
 
-                    {# Delete option #}
-                    {% if role == 'Admin' and a.status == 'Declined' %}
-                      <form method="post"
-                            action="{{ url_for('award_delete', award_id=a.award_id) }}"
-                            style="display:inline;">
-                        <button type="submit" class="btn-small-danger">
-                          Delete
-                        </button>
-                      </form>
-                    {% elif role != 'Admin' %}
+                    {# Delete option - Show for declined awards #}
+                    {% if a.status == 'Declined' %}
                       <form method="post"
                             action="{{ url_for('award_delete', award_id=a.award_id) }}"
                             style="display:inline;">

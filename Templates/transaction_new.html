@@ -67,7 +67,6 @@
             <option value="Materials">Materials</option>
             <option value="Equipment">Equipment</option>
             <option value="Other Direct Costs">Other Direct Costs</option>
-            <option value="Other">Other</option>
           </select>
         </div>
 
@@ -118,12 +117,6 @@
       
       // Map category names to match budget status keys
       let budgetKey = category;
-      if (category === 'Other Direct Costs') {
-        budgetKey = 'Other Direct Costs';
-      } else if (category === 'Other') {
-        // Check if "Other Direct Costs" exists, otherwise use "Other"
-        budgetKey = budgetStatus['Other Direct Costs'] ? 'Other Direct Costs' : 'Other';
-      }
       
       const categoryBudget = budgetStatus[budgetKey];
       

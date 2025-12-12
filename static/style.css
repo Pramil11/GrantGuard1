@@ -1507,6 +1507,61 @@ body.theme-dark select:focus {
   padding-left: 4px;
 }
 
+.policy-key-points {
+  margin: 0;
+  padding-left: 20px;
+  color: #4b5563;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  line-height: 1.6;
+}
+
+.policy-key-points li {
+  font-size: 0.875em;
+  padding-left: 4px;
+}
+
+/* Dark mode for policies */
+body.theme-dark .policies-page {
+  background: var(--gg-bg-main);
+}
+
+body.theme-dark .policies-hero h1 {
+  color: var(--gg-text-main);
+}
+
+body.theme-dark .policy-card {
+  background: var(--gg-bg-card);
+  border-color: #1f2937;
+}
+
+body.theme-dark .policy-card summary:hover {
+  background-color: #1f2937;
+}
+
+body.theme-dark .policy-card[open] summary {
+  background-color: #1f2937;
+  border-bottom-color: #374151;
+}
+
+body.theme-dark .policy-card h3 {
+  color: var(--gg-text-main);
+}
+
+body.theme-dark .policy-section h4 {
+  color: #60a5fa;
+}
+
+body.theme-dark .policy-section ul,
+body.theme-dark .policy-key-points {
+  color: var(--gg-text-secondary);
+}
+
+body.theme-dark .policy-key-points li {
+  color: var(--gg-text-secondary);
+}
+
 @media (max-width: 700px) {
   .policies-hero {
     flex-direction: column;
