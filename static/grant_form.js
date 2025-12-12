@@ -16,13 +16,39 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!startInput || !endInput) return [];
     if (!startInput.value || !endInput.value) return [];
 
-    const s = new Date(startInput.value);
-    const e = new Date(endInput.value);
-
-    if (isNaN(s) || isNaN(e) || e < s) return [];
-
+    // Parse date strings directly to avoid timezone issues
+    // Date format is YYYY-MM-DD
+    const startParts = startInput.value.split('-');
+    const endParts = endInput.value.split('-');
+    
+    if (startParts.length !== 3 || endParts.length !== 3) return [];
+    
+    const startYear = parseInt(startParts[0], 10);
+    const startMonth = parseInt(startParts[1], 10);
+    const startDay = parseInt(startParts[2], 10);
+    
+    const endYear = parseInt(endParts[0], 10);
+    const endMonth = parseInt(endParts[1], 10);
+    const endDay = parseInt(endParts[2], 10);
+    
+    // Validate dates
+    if (isNaN(startYear) || isNaN(endYear)) return [];
+    
+    // Check if end date is before start date
+    if (endYear < startYear || 
+        (endYear === startYear && endMonth < startMonth) ||
+        (endYear === startYear && endMonth === startMonth && endDay < startDay)) {
+      return [];
+    }
+    
     const years = [];
-    for (let y = s.getFullYear(); y <= e.getFullYear(); y++) {
+    
+    // Check if end date is January 1st - if so, exclude that year
+    // because the research period doesn't actually include any days in that year
+    const excludeEndYear = (endMonth === 1 && endDay === 1);
+    const lastYear = excludeEndYear ? endYear - 1 : endYear;
+    
+    for (let y = startYear; y <= lastYear; y++) {
       years.push(y);
     }
     return years;

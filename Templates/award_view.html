@@ -31,7 +31,65 @@
       <!-- =======================
            Grant overview
       ======================== -->
-      <h2>{{ award.title }}</h2>
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
+        <div style="flex: 1;">
+          <h2 style="margin: 0 0 8px 0;">{{ award.title }}</h2>
+          <p style="margin: 0; color: #6b7280; font-size: 0.875em;">Status: <span style="font-weight: 600; color: var(--gg-text-main);">{{ award.status }}</span></p>
+        </div>
+        
+        <!-- Admin Approve/Decline Buttons (Top Right) -->
+        {% if user.role == 'Admin' and award.status == 'Pending' %}
+        <div style="display: flex; gap: 12px; align-items: center;">
+          <form method="post" action="{{ url_for('award_decline', award_id=award.award_id) }}" style="display:inline;">
+            <button type="submit" class="btn" style="background: #ef4444; color: white;">
+              Decline
+            </button>
+          </form>
+          <form method="post" action="{{ url_for('award_approve', award_id=award.award_id) }}" style="display:inline;">
+            <button type="submit" class="btn" style="background: #10b981; color: white;">
+              Approve
+            </button>
+          </form>
+        </div>
+        {% endif %}
+      </div>
+      
+      <!-- Action Buttons (moved to top for all users) -->
+      <div style="margin-bottom:24px; display:flex; flex-wrap:wrap; gap:8px;">
+        {% if award.status == 'Draft' %}
+        <form method="post" action="{{ url_for('award_submit', award_id=award.award_id) }}" style="display:inline;">
+          <button type="submit" class="btn" style="background: #10b981;">
+            Submit Award
+          </button>
+        </form>
+        {% endif %}
+        <a href="{{ url_for('award_edit', award_id=award.award_id) }}" class="btn">
+          Edit
+        </a>
+        <a href="{{ url_for('dashboard') }}" class="btn">
+          Back to Dashboard
+        </a>
+        <a href="{{ url_for('download_award_pdf', award_id=award.award_id) }}" class="btn btn-secondary">
+          Download PDF
+        </a>
+        <a href="{{ url_for('download_award_excel', award_id=award.award_id) }}" class="btn btn-secondary">
+          Download Excel
+        </a>
+        {% if user.role == 'Admin' and award.status == 'Pending' %}
+        <button id="check-compliance-btn" class="btn" style="background: #8b5cf6;">
+          <span id="check-compliance-text">Check AI Compliance</span>
+          <span id="check-compliance-loading" style="display:none;">Checking...</span>
+        </button>
+        {% endif %}
+        {% if award.status == 'Approved' %}
+        <a href="{{ url_for('budget_status', award_id=award.award_id) }}" class="btn" style="background: #0b84f3;">
+          Budget Status
+        </a>
+        <a href="{{ url_for('transactions_list', award_id=award.award_id) }}" class="btn" style="background: #6b7280;">
+          Transactions
+        </a>
+        {% endif %}
+      </div>
       
       <!-- AI Compliance Results Section (Admin only, for Pending awards) -->
       {% if user.role == 'Admin' and award.status == 'Pending' %}
@@ -159,9 +217,7 @@
               <tr>
                 <th>Type</th>
                 <th>Description</th>
-                <th>Flight Cost</th>
-                <th>Taxi/Day</th>
-                <th>Food &amp; Lodge/Day</th>
+                <th>Total Estimated Amount</th>
               </tr>
             </thead>
             <tbody>
@@ -169,18 +225,38 @@
               <tr>
                 <td>Domestic</td>
                 <td>{{ t.description or 'N/A' }}</td>
-                <td>${{ '%.2f'|format(t.flight or 0) }}</td>
-                <td>${{ '%.2f'|format(t.taxi_per_day or 0) }}</td>
-                <td>${{ '%.2f'|format(t.food_per_day or 0) }}</td>
+                <td>
+                  {% if t.total_amount %}
+                    ${{ '%.2f'|format(t.total_amount) }}
+                  {% else %}
+                    {# Fallback for old format - calculate total #}
+                    {% set flight = t.flight or t.flight_cost or 0 %}
+                    {% set taxi = t.taxi_per_day or 0 %}
+                    {% set food = t.food_per_day or t.food_lodge_per_day or 0 %}
+                    {% set days = t.days or t.num_days or 0 %}
+                    {% set old_total = flight + (taxi + food) * days %}
+                    ${{ '%.2f'|format(old_total) }}
+                  {% endif %}
+                </td>
               </tr>
             {% endfor %}
             {% for t in international_travel %}
               <tr>
                 <td>International</td>
                 <td>{{ t.description or 'N/A' }}</td>
-                <td>${{ '%.2f'|format(t.flight or 0) }}</td>
-                <td>${{ '%.2f'|format(t.taxi_per_day or 0) }}</td>
-                <td>${{ '%.2f'|format(t.food_per_day or 0) }}</td>
+                <td>
+                  {% if t.total_amount %}
+                    ${{ '%.2f'|format(t.total_amount) }}
+                  {% else %}
+                    {# Fallback for old format - calculate total #}
+                    {% set flight = t.flight or t.flight_cost or 0 %}
+                    {% set taxi = t.taxi_per_day or 0 %}
+                    {% set food = t.food_per_day or t.food_lodge_per_day or 0 %}
+                    {% set days = t.days or t.num_days or 0 %}
+                    {% set old_total = flight + (taxi + food) * days %}
+                    ${{ '%.2f'|format(old_total) }}
+                  {% endif %}
+                </td>
               </tr>
             {% endfor %}
             </tbody>
@@ -217,37 +293,6 @@
         {% endif %}
       </section>
 
-      <!-- =======================
-           Bottom buttons
-      ======================== -->
-<div style="margin-top:16px;">
-  <a href="{{ url_for('award_edit', award_id=award.award_id) }}" class="btn">
-    Edit
-  </a>
-  <a href="{{ url_for('dashboard') }}" class="btn" style="margin-left:8px;">
-    Back to Dashboard
-  </a>
-  <a href="{{ url_for('download_award_pdf', award_id=award.award_id) }}" class="btn btn-secondary" style="margin-left:8px;">
-    Download PDF
-  </a>
-  <a href="{{ url_for('download_award_excel', award_id=award.award_id) }}" class="btn btn-secondary" style="margin-left:8px;">
-    Download Excel
-  </a>
-  {% if user.role == 'Admin' and award.status == 'Pending' %}
-  <button id="check-compliance-btn" class="btn" style="margin-left:8px; background: #8b5cf6;">
-    <span id="check-compliance-text">Check AI Compliance</span>
-    <span id="check-compliance-loading" style="display:none;">Checking...</span>
-  </button>
-  {% endif %}
-  {% if award.status == 'Approved' %}
-  <a href="{{ url_for('budget_status', award_id=award.award_id) }}" class="btn" style="margin-left:8px; background: #0b84f3;">
-    Budget Status
-  </a>
-  <a href="{{ url_for('transactions_list', award_id=award.award_id) }}" class="btn" style="margin-left:8px; background: #6b7280;">
-    Transactions
-  </a>
-  {% endif %}
-</div>
 
 
     </main>

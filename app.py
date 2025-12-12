@@ -1322,6 +1322,16 @@ def award_edit(award_id):
 
             conn.commit()
             cur.close()
+            
+            # Recalculate budget lines if award is approved (to reflect updated form data)
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute("SELECT status FROM awards WHERE award_id = %s", (award_id,))
+            award_status = cur.fetchone()
+            cur.close()
+            
+            if award_status and award_status['status'] == 'Approved':
+                initialize_budget_lines(award_id)
+                
         except Exception as e:
             print(f"DB update award error: {e}")
             conn.rollback()
@@ -2055,7 +2065,7 @@ def get_budget_status(award_id):
         categories = {}
         pending_by_category = {}
         
-        # Initialize from budget_lines (allocated amounts)
+        # Initialize from budget_lines (allocated amounts only - transactions are source of truth for spent/committed)
         for line in budget_lines:
             cat = line['category'] or 'Other'
             # Skip "Total" category - we calculate totals separately
@@ -2063,15 +2073,19 @@ def get_budget_status(award_id):
                 continue
             categories[cat] = {
                 "allocated": float(line.get("allocated_amount") or 0),
-                "spent": float(line.get("spent_amount") or 0),
-                "committed": float(line.get("committed_amount") or 0),
+                "spent": 0,  # Will be calculated from transactions
+                "committed": 0,  # Will be calculated from transactions
             }
-
+        
         # Calculate spent and committed from transactions (source of truth)
         for txn in transactions:
             cat = txn['category'] or 'Other'
             amount = float(txn['amount'] or 0)
             status = txn['status']
+            
+            # Map "Other" transactions to "Other Direct Costs" if it exists, otherwise keep as "Other"
+            if cat == 'Other' and 'Other Direct Costs' in categories:
+                cat = 'Other Direct Costs'
             
             if cat not in categories:
                 categories[cat] = {'allocated': 0, 'spent': 0, 'committed': 0}
@@ -2080,13 +2094,14 @@ def get_budget_status(award_id):
                 categories[cat]['spent'] += amount
             elif status == 'Pending':
                 pending_by_category[cat] = pending_by_category.get(cat, 0) + amount
+        
         # Calculate remaining
         for cat, vals in categories.items():
             pending_amt = pending_by_category.get(cat, 0.0)
             # Committed = spent + pending
             vals['committed'] = vals['spent'] + pending_amt
-            # Remaining = allocated - spent (pending does not reduce remaining)
-            vals['remaining'] = vals['allocated'] - vals['spent']
+            # Remaining = allocated - committed (both spent and pending reduce available budget)
+            vals['remaining'] = max(0, vals['allocated'] - vals['committed'])
         
         cur.close()
         return categories
@@ -2136,53 +2151,101 @@ def initialize_budget_lines(award_id):
                 return json.loads(raw)
             except (TypeError, json.JSONDecodeError):
                 return []
-        # Personnel
-        personnel = json.loads(award['personnel_json']) if award['personnel_json'] else []
+        # Personnel - use rate_per_hour * hours from form
+        personnel = parse_json_field(award.get('personnel_json'))
         personnel_total = 0
+        personnel_items = []
         for p in personnel:
             if isinstance(p, dict):
                 hours_list = p.get('hours', [])
-                if isinstance(hours_list, list):
-                    for h in hours_list:
-                        if isinstance(h, dict):
-                            hrs = float(h.get('hours', 0) or 0)
-                            # Assume $50/hour average (should come from cost_rates table later)
-                            personnel_total += hrs * 50
+                rate_per_hour = float(p.get('rate_per_hour', 0) or 0)
+                total_from_form = float(p.get('total', 0) or 0)
+                
+                # If total is provided, use it; otherwise calculate from hours * rate
+                if total_from_form > 0:
+                    personnel_total += total_from_form
+                elif isinstance(hours_list, list) and rate_per_hour > 0:
+                    total_hours = sum(float(h.get('hours', 0) or 0) for h in hours_list if isinstance(h, dict))
+                    personnel_total += total_hours * rate_per_hour
+                
+                personnel_items.append({
+                    'name': p.get('name', 'Unknown'),
+                    'position': p.get('position', 'N/A'),
+                    'total': total_from_form if total_from_form > 0 else (sum(float(h.get('hours', 0) or 0) for h in hours_list if isinstance(h, dict)) * rate_per_hour if rate_per_hour > 0 else 0)
+                })
         categories['Personnel'] = personnel_total
         
-        # Travel
-        dom_travel = json.loads(award['domestic_travel_json']) if award['domestic_travel_json'] else []
-        intl_travel = json.loads(award['international_travel_json']) if award['international_travel_json'] else []
+        # Travel - use total_amount from new simplified structure
+        dom_travel = parse_json_field(award.get('domestic_travel_json'))
+        intl_travel = parse_json_field(award.get('international_travel_json'))
         travel_total = 0
+        travel_items = []
+        
+        # Handle new structure (total_amount) and old structure (flight/taxi/food)
         for t in dom_travel + intl_travel:
             if isinstance(t, dict):
-                flight = float(
-                    t.get("flight_cost") or t.get("flight") or 0
-                )
-                taxi = float(
-                    t.get("taxi_per_day") or t.get("taxi") or 0
-                )
-                food = float(
-                    t.get("food_lodge_per_day")
-                    or t.get("food_per_day")
-                    or t.get("food")
-                    or 0
-                )
-                days = float(t.get("days", 0) or 0)
-                travel_total += flight + (taxi + food) * days
+                # New structure: total_amount
+                total_amount = float(t.get('total_amount', 0) or 0)
+                if total_amount > 0:
+                    travel_total += total_amount
+                    travel_items.append({
+                        'description': t.get('description', 'N/A'),
+                        'type': 'Domestic' if t in dom_travel else 'International',
+                        'amount': total_amount
+                    })
+                else:
+                    # Old structure fallback
+                    flight = float(t.get("flight_cost") or t.get("flight") or 0)
+                    taxi = float(t.get("taxi_per_day") or t.get("taxi") or 0)
+                    food = float(t.get("food_lodge_per_day") or t.get("food_per_day") or t.get("food") or 0)
+                    days = float(t.get("days", 0) or 0)
+                    old_total = flight + (taxi + food) * days
+                    if old_total > 0:
+                        travel_total += old_total
+                        travel_items.append({
+                            'description': t.get('description', 'N/A'),
+                            'type': 'Domestic' if t in dom_travel else 'International',
+                            'amount': old_total
+                        })
         categories["Travel"] = travel_total
         
-        # Materials
-        materials = json.loads(award['materials_json']) if award['materials_json'] else []
+        # Materials, Equipment, and Other Direct Costs - separate by type
+        materials_json = parse_json_field(award.get('materials_json'))
         materials_total = 0
-        for m in materials:
+        equipment_total = 0
+        other_costs_total = 0
+        materials_items = []
+        equipment_items = []
+        other_costs_items = []
+        
+        for m in materials_json:
             if isinstance(m, dict):
                 cost = float(m.get('cost', 0) or 0)
-                materials_total += cost
-        categories['Materials'] = materials_total
+                item_type = m.get('type', '')
+                
+                if item_type == 'equipment':
+                    equipment_total += cost
+                    equipment_items.append({
+                        'description': m.get('description', 'N/A'),
+                        'amount': cost
+                    })
+                elif item_type == 'other':
+                    other_costs_total += cost
+                    other_costs_items.append({
+                        'description': m.get('description', 'N/A'),
+                        'amount': cost
+                    })
+                else:
+                    # Regular materials
+                    materials_total += cost
+                    materials_items.append({
+                        'description': m.get('description', 'N/A'),
+                        'amount': cost
+                    })
         
-        # Equipment (from budget_equipment field)
-        categories["Equipment"] = float(award.get("budget_equipment") or 0)
+        categories['Materials'] = materials_total
+        categories["Equipment"] = equipment_total
+        categories['Other Direct Costs'] = other_costs_total
         
         # Other (remaining from total)
         total_allocated = sum(categories.values())
@@ -2191,6 +2254,20 @@ def initialize_budget_lines(award_id):
         # If no detailed breakdown, allocate everything to "Other"
         if total_allocated == 0 and total_award > 0:
             categories = {"Other": total_award}
+        
+        # Get subawards total
+        cur.execute(
+            """
+            SELECT COALESCE(SUM(amount), 0) as total_subawards
+            FROM subawards
+            WHERE award_id = %s AND status != 'Declined'
+            """,
+            (award_id,)
+        )
+        subaward_result = cur.fetchone()
+        subawards_total = float(subaward_result['total_subawards'] or 0) if subaward_result else 0
+        if subawards_total > 0:
+            categories['Subawards'] = subawards_total
         
         # Insert/update budget_lines
         for category, amount in categories.items():
@@ -2206,7 +2283,8 @@ def initialize_budget_lines(award_id):
                 exists = cur.fetchone()
                 
                 if exists:
-                    # Update allocated amount (don't overwrite spent/committed)
+                    # Update allocated amount (preserve spent/committed from transactions)
+                    # Recalculate remaining based on new allocated amount
                     cur.execute(
                         """
                         UPDATE budget_lines
@@ -2338,14 +2416,31 @@ def transaction_create():
         user_row = cur.fetchone()
         user_id = user_row['user_id'] if user_row else None
         
+        # Map "Other" to "Other Direct Costs" if that category exists in budget
+        # Check what categories exist in budget_lines
+        cur.execute(
+            """
+            SELECT category FROM budget_lines
+            WHERE award_id = %s
+            """,
+            (award_id,)
+        )
+        existing_categories = [row['category'] for row in cur.fetchall()]
+        
+        # If transaction is "Other" but "Other Direct Costs" exists, map it
+        transaction_category = category
+        if category == 'Other' and 'Other Direct Costs' in existing_categories:
+            transaction_category = 'Other Direct Costs'
+        
         # Check budget availability (only if budget has been allocated)
         budget_status = get_budget_status(award_id)
-        cat_budget = budget_status.get(category, {})
+        cat_budget = budget_status.get(transaction_category, {})
         allocated = cat_budget.get('allocated', 0)
         remaining = cat_budget.get('remaining', 0)
         
         # Only check budget if there's an allocated amount for this category
         # If no budget allocated yet, allow the transaction (it will create the budget line)
+        # Remaining = allocated - committed (spent + pending), so check against remaining
         if allocated > 0 and amount_val > remaining:
             return make_response(f"Insufficient budget. Remaining: ${remaining:,.2f}", 400)
         
@@ -2356,18 +2451,33 @@ def transaction_create():
             VALUES (%s, %s, %s, %s, %s, %s, 'Pending')
             RETURNING transaction_id
             """,
-            (award_id, user_id, category, description, amount_val, date_submitted)
+            (award_id, user_id, transaction_category, description, amount_val, date_submitted)
         )
         transaction_id = cur.fetchone()['transaction_id']
         
-        # Update committed amount in budget_lines
+        # Use the mapped category for budget_lines update
+        # Check what categories exist in budget_lines
+        cur.execute(
+            """
+            SELECT category FROM budget_lines
+            WHERE award_id = %s
+            """,
+            (award_id,)
+        )
+        existing_categories = [row['category'] for row in cur.fetchall()]
+        
+        # If transaction is "Other" but "Other Direct Costs" exists, map it
+        if category == 'Other' and 'Other Direct Costs' in existing_categories:
+            category = 'Other Direct Costs'
+        
+        # Update committed amount in budget_lines using the mapped category
         # Check if budget line exists
         cur.execute(
             """
             SELECT line_id FROM budget_lines
             WHERE award_id = %s AND category = %s
             """,
-            (award_id, category)
+            (award_id, transaction_category)
         )
         exists = cur.fetchone()
         
@@ -2378,16 +2488,16 @@ def transaction_create():
                 SET committed_amount = committed_amount + %s
                 WHERE award_id = %s AND category = %s
                 """,
-                (amount_val, award_id, category)
+                (amount_val, award_id, transaction_category)
             )
         else:
-            # Create budget line if it doesn't exist
+            # Create budget line if it doesn't exist (for transactions without allocated budget)
             cur.execute(
                 """
                 INSERT INTO budget_lines (award_id, category, allocated_amount, spent_amount, committed_amount)
                 VALUES (%s, %s, 0, 0, %s)
                 """,
-                (award_id, category, amount_val)
+                (award_id, transaction_category, amount_val)
             )
         
         conn.commit()
@@ -2506,20 +2616,133 @@ def budget_status(award_id):
     if not award:
         return "Award not found", 404
     
-    # Initialize budget lines if award is approved and lines don't exist
+    # Initialize/recalculate budget lines if award is approved
+    # This ensures budget always matches the current form data
     if award['status'] == 'Approved':
-        # Always try to initialize - it will update if exists, create if not
+        # Always recalculate from form data - it will update allocated amounts
         initialize_budget_lines(award_id)
     
     budget_status_data = get_budget_status(award_id)
     
-    # Calculate totals
+    # Helper function to parse JSON fields
+    def parse_json_field(raw):
+        if not raw:
+            return []
+        if isinstance(raw, (list, dict)):
+            return raw
+        try:
+            return json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            return []
+    
+    # Get detailed items for each category
+    conn = get_db()
+    personnel_items = []
+    travel_items = []
+    materials_items = []
+    equipment_items = []
+    other_costs_items = []
+    subawards_list = []
+    
+    if conn is not None:
+        try:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            
+            # Personnel items
+            personnel_json = parse_json_field(award.get('personnel_json'))
+            for p in personnel_json:
+                if isinstance(p, dict):
+                    hours_list = p.get('hours', [])
+                    rate_per_hour = float(p.get('rate_per_hour', 0) or 0)
+                    total_from_form = float(p.get('total', 0) or 0)
+                    
+                    if total_from_form > 0:
+                        total = total_from_form
+                    elif isinstance(hours_list, list) and rate_per_hour > 0:
+                        total_hours = sum(float(h.get('hours', 0) or 0) for h in hours_list if isinstance(h, dict))
+                        total = total_hours * rate_per_hour
+                    else:
+                        total = 0
+                    
+                    if total > 0:
+                        personnel_items.append({
+                            'name': p.get('name', 'Unknown'),
+                            'position': p.get('position', 'N/A'),
+                            'amount': total
+                        })
+            
+            # Travel items
+            dom_travel = parse_json_field(award.get('domestic_travel_json'))
+            intl_travel = parse_json_field(award.get('international_travel_json'))
+            for t in dom_travel + intl_travel:
+                if isinstance(t, dict):
+                    total_amount = float(t.get('total_amount', 0) or 0)
+                    if total_amount > 0:
+                        travel_items.append({
+                            'description': t.get('description', 'N/A'),
+                            'type': 'Domestic' if t in dom_travel else 'International',
+                            'amount': total_amount
+                        })
+            
+            # Materials, Equipment, Other Direct Costs
+            materials_json = parse_json_field(award.get('materials_json'))
+            for m in materials_json:
+                if isinstance(m, dict):
+                    cost = float(m.get('cost', 0) or 0)
+                    item_type = m.get('type', '')
+                    
+                    if item_type == 'equipment':
+                        equipment_items.append({
+                            'description': m.get('description', 'N/A'),
+                            'amount': cost
+                        })
+                    elif item_type == 'other':
+                        other_costs_items.append({
+                            'description': m.get('description', 'N/A'),
+                            'amount': cost
+                        })
+                    else:
+                        materials_items.append({
+                            'description': m.get('description', 'N/A'),
+                            'amount': cost
+                        })
+            
+            # Subawards
+            cur.execute(
+                """
+                SELECT subaward_id, subrecipient_name, amount, status
+                FROM subawards
+                WHERE award_id = %s AND status != 'Declined'
+                ORDER BY created_at DESC
+                """,
+                (award_id,)
+            )
+            subawards_list = cur.fetchall()
+            for sub in subawards_list:
+                if sub.get('amount'):
+                    sub['amount'] = float(sub['amount'])
+            
+            cur.close()
+        except Exception as e:
+            print(f"DB fetch items error: {e}")
+        finally:
+            conn.close()
+    
+    # Calculate totals (ensure all are floats)
     totals = {
-        'allocated': sum(cat.get('allocated', 0) for cat in budget_status_data.values()),
-        'spent': sum(cat.get('spent', 0) for cat in budget_status_data.values()),
-        'committed': sum(cat.get('committed', 0) for cat in budget_status_data.values()),
-        'remaining': sum(cat.get('remaining', 0) for cat in budget_status_data.values()),
+        'allocated': float(sum(cat.get('allocated', 0) for cat in budget_status_data.values())),
+        'spent': float(sum(cat.get('spent', 0) for cat in budget_status_data.values())),
+        'committed': float(sum(cat.get('committed', 0) for cat in budget_status_data.values())),
+        'remaining': float(sum(cat.get('remaining', 0) for cat in budget_status_data.values())),
     }
+    
+    # Convert award.amount to float and calculate remaining budget
+    total_award_amount = float(award.get('amount') or 0)
+    remaining_budget = total_award_amount - totals['committed']
+    
+    # Ensure award.amount is float for template display
+    if award.get('amount'):
+        award['amount'] = float(award['amount'])
     
     u = session.get("user")
     return render_template(
@@ -2527,6 +2750,14 @@ def budget_status(award_id):
         award=award,
         budget_status=budget_status_data,
         totals=totals,
+        total_award_amount=total_award_amount,
+        remaining_budget=remaining_budget,
+        personnel_items=personnel_items,
+        travel_items=travel_items,
+        materials_items=materials_items,
+        equipment_items=equipment_items,
+        other_costs_items=other_costs_items,
+        subawards_list=subawards_list,
         user=u or {}
     )
 
@@ -2572,6 +2803,20 @@ def transaction_approve(transaction_id):
             (transaction_id,)
         )
         
+        # Map transaction category to budget category
+        txn_category = txn['category'] or 'Other'
+        # Check if "Other Direct Costs" exists in budget_lines
+        cur.execute(
+            """
+            SELECT category FROM budget_lines
+            WHERE award_id = %s
+            """,
+            (txn['award_id'],)
+        )
+        existing_categories = [row['category'] for row in cur.fetchall()]
+        if txn_category == 'Other' and 'Other Direct Costs' in existing_categories:
+            txn_category = 'Other Direct Costs'
+        
         # Move from committed to spent in budget_lines
         # First ensure budget line exists
         cur.execute(
@@ -2579,7 +2824,7 @@ def transaction_approve(transaction_id):
             SELECT line_id FROM budget_lines
             WHERE award_id = %s AND category = %s
             """,
-            (txn['award_id'], txn['category'])
+            (txn['award_id'], txn_category)
         )
         budget_line = cur.fetchone()
         
@@ -2591,7 +2836,7 @@ def transaction_approve(transaction_id):
                     spent_amount = spent_amount + %s
                 WHERE award_id = %s AND category = %s
                 """,
-                (txn['amount'], txn['amount'], txn['award_id'], txn['category'])
+                (txn['amount'], txn['amount'], txn['award_id'], txn_category)
             )
         else:
             # Create budget line if it doesn't exist
@@ -2651,13 +2896,27 @@ def transaction_decline(transaction_id):
             (transaction_id,)
         )
         
+        # Map transaction category to budget category
+        txn_category = txn['category'] or 'Other'
+        # Check if "Other Direct Costs" exists in budget_lines
+        cur.execute(
+            """
+            SELECT category FROM budget_lines
+            WHERE award_id = %s
+            """,
+            (award_id,)
+        )
+        existing_categories = [row['category'] for row in cur.fetchall()]
+        if txn_category == 'Other' and 'Other Direct Costs' in existing_categories:
+            txn_category = 'Other Direct Costs'
+        
         # Remove from committed amount in budget_lines
         cur.execute(
             """
             SELECT line_id FROM budget_lines
             WHERE award_id = %s AND category = %s
             """,
-            (award_id, txn['category'] or 'Other')
+            (award_id, txn_category)
         )
         budget_line = cur.fetchone()
         
@@ -2668,7 +2927,7 @@ def transaction_decline(transaction_id):
                 SET committed_amount = GREATEST(0, committed_amount - %s)
                 WHERE award_id = %s AND category = %s
                 """,
-                (txn['amount'], award_id, txn['category'] or 'Other')
+                (txn['amount'], award_id, txn_category)
             )
         
         conn.commit()
