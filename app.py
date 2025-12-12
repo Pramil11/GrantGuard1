@@ -391,11 +391,12 @@ def awards_new():
 def _get_award_for_export(award_id, user):
     """
     Load a single award plus JSON budget fields and return:
-    award, personnel, domestic_travel, international_travel, materials, equpiment, other_direct
+    award, personnel, domestic_travel, international_travel, materials, equipment, other_direct
+    Handles backward compatibility for equipment/other_direct stored in materials_json
     """
     conn = get_db()
     if conn is None:
-        return None, [], [], [], []
+        return None, [], [], [], [], [], []
 
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -414,10 +415,10 @@ def _get_award_for_export(award_id, user):
         conn.close()
     except Exception as e:
         print(f"_get_award_for_export query error: {e}")
-        return None, [], [], [], []
+        return None, [], [], [], [], [], []
 
     if not award:
-        return None, [], [], [], []
+        return None, [], [], [], [], [], []
 
     # Parse JSON blobs exactly like award_view
     def parse_json(field_name):
@@ -434,9 +435,47 @@ def _get_award_for_export(award_id, user):
     personnel = parse_json("personnel_json")
     domestic_travel = parse_json("domestic_travel_json")
     international_travel = parse_json("international_travel_json")
-    materials = parse_json("materials_json")
-    equipment = parse_json("equipment_json")
-    other_direct = parse_json("other_direct_json")
+    materials_raw = parse_json("materials_json")
+    equipment_from_json = parse_json("equipment_json")
+    other_direct_from_json = parse_json("other_direct_json")
+    
+    # Extract equipment and other direct costs from materials_json (old format)
+    # Equipment was stored in materials_json with type='equipment'
+    equipment_from_materials = []
+    materials = []
+    other_direct_from_materials = []
+    
+    if materials_raw:
+        for item in materials_raw:
+            if isinstance(item, dict):
+                item_type = item.get('type', '').lower()
+                if item_type == 'equipment':
+                    # Extract equipment from materials
+                    equipment_from_materials.append({
+                        'description': item.get('description', ''),
+                        'cost': item.get('cost', 0)
+                    })
+                elif item_type == 'other':
+                    # Extract other direct costs from materials
+                    other_direct_from_materials.append({
+                        'description': item.get('description', ''),
+                        'cost': item.get('cost', 0)
+                    })
+                else:
+                    # Regular materials
+                    materials.append(item)
+    
+    # Combine equipment from both sources (equipment_json takes priority if it has items)
+    if equipment_from_json and len(equipment_from_json) > 0:
+        equipment = equipment_from_json
+    else:
+        equipment = equipment_from_materials
+    
+    # Combine other direct costs from both sources (other_direct_json takes priority if it has items)
+    if other_direct_from_json and len(other_direct_from_json) > 0:
+        other_direct = other_direct_from_json
+    else:
+        other_direct = other_direct_from_materials
 
     return award, personnel, domestic_travel, international_travel, materials, equipment, other_direct 
 
@@ -888,13 +927,26 @@ def download_award_pdf(award_id):
         return ", ".join(parts)
 
     def travel_row(travel_type, t):
-        return [
-            travel_type,
-            t.get("description") or "",
-            t.get("flight_cost") or t.get("flight") or "",
-            t.get("taxi_per_day") or "",
-            t.get("food_lodge_per_day") or t.get("food_per_day") or "",
-        ]
+        # Handle new format (total_amount) and old format (flight/taxi/food)
+        total_amount = float(t.get("total_amount") or 0)
+        if total_amount > 0:
+            return [
+                travel_type,
+                t.get("description") or "",
+                f"${total_amount:,.2f}",
+            ]
+        else:
+            # Old format fallback
+            flight = float(t.get("flight_cost") or t.get("flight") or 0)
+            taxi = float(t.get("taxi_per_day") or 0)
+            food = float(t.get("food_lodge_per_day") or t.get("food_per_day") or 0)
+            days = float(t.get("days") or 0)
+            old_total = flight + (taxi + food) * days if days > 0 else flight
+            return [
+                travel_type,
+                t.get("description") or "",
+                f"${old_total:,.2f}" if old_total > 0 else "",
+            ]
 
     # -------- basic fields ----------
     title = award.get("title") or "Grant"
@@ -960,12 +1012,23 @@ def download_award_pdf(award_id):
     # -------- Personnel table ----------
     if personnel:
         elements.append(Paragraph("Personnel", styles["Heading3"]))
-        data = [["Name", "Position", "Hours for year(s)", "Same Each Year?"]]
+        data = [["Name", "Position", "Hours for year(s)", "Rate per Hour", "Total Amount", "Same Each Year?"]]
         for p in personnel:
+            rate = float(p.get("rate_per_hour") or 0)
+            total = float(p.get("total") or 0)
+            # Calculate total if not provided
+            if total == 0 and rate > 0:
+                hours_list = p.get("hours", [])
+                if isinstance(hours_list, list):
+                    total_hours = sum(float(h.get("hours", 0) or 0) for h in hours_list if isinstance(h, dict))
+                    total = total_hours * rate
+            
             data.append([
                 p.get("name") or "",
                 p.get("position") or "",
                 hours_text(p.get("hours")),
+                f"${rate:,.2f}" if rate > 0 else "",
+                f"${total:,.2f}" if total > 0 else "",
                 "Yes" if p.get("same_each_year") else "No",
             ])
 
@@ -975,6 +1038,7 @@ def download_award_pdf(award_id):
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
             ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+            ("ALIGN", (3, 1), (4, -1), "RIGHT"),  # Right-align rate and total columns
             ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ]))
@@ -986,9 +1050,7 @@ def download_award_pdf(award_id):
         elements.append(Paragraph("Travel Information", styles["Heading3"]))
         data = [
             [
-                "Type", "Description",
-                "Flight Cost",
-                "Taxi/Day", "Food & Lodge/Day",
+                "Type", "Description", "Total Estimated Amount"
             ]
         ]
         for t_dom in domestic_travel:
@@ -1001,6 +1063,7 @@ def download_award_pdf(award_id):
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E0E0E0")),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
             ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+            ("ALIGN", (2, 1), (2, -1), "RIGHT"),  # Right-align amount column
             ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ]))
@@ -1012,9 +1075,10 @@ def download_award_pdf(award_id):
         elements.append(Paragraph("Materials and Supplies", styles["Heading3"]))
         data = [["Description", "Cost"]]
         for m in materials:
+            cost = float(m.get("cost") or 0)
             data.append([
                 m.get("description") or "",
-                m.get("cost") or "",
+                f"${cost:,.2f}" if cost > 0 else "",
             ])
 
         t = Table(data, repeatRows=1)
@@ -1022,19 +1086,23 @@ def download_award_pdf(award_id):
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E0E0E0")),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
             ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+            ("ALIGN", (1, 1), (1, -1), "RIGHT"),  # Right-align cost column
             ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ]))
         elements.append(t)
-        # -------- Equipment ----------
+        elements.append(Spacer(1, 12))
+    
+    # -------- Equipment ----------
     if equipment:
         elements.append(Paragraph("Equipment", styles["Heading3"]))
         data = [["Description", "Cost"]]
 
         for e in equipment:
+            cost = float(e.get("cost") or 0)
             data.append([
                 e.get("description") or "",
-                e.get("cost") or "",
+                f"${cost:,.2f}" if cost > 0 else "",
             ])
 
         t = Table(data, repeatRows=1)
@@ -1042,19 +1110,23 @@ def download_award_pdf(award_id):
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E0E0E0")),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
             ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+            ("ALIGN", (1, 1), (1, -1), "RIGHT"),  # Right-align cost column
             ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ]))
-        elements.append(t)    
+        elements.append(t)
+        elements.append(Spacer(1, 12))
+    
     # -------- Other Direct Costs ----------
     if other_direct:
         elements.append(Paragraph("Other Direct Costs", styles["Heading3"]))
         data = [["Description", "Cost"]]
 
         for d in other_direct:
+            cost = float(d.get("cost") or 0)
             data.append([
                 d.get("description") or "",
-                d.get("cost") or "",
+                f"${cost:,.2f}" if cost > 0 else "",
             ])
 
         t = Table(data, repeatRows=1)
@@ -1062,6 +1134,7 @@ def download_award_pdf(award_id):
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E0E0E0")),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
             ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+            ("ALIGN", (1, 1), (1, -1), "RIGHT"),  # Right-align cost column
             ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ]))
@@ -1150,7 +1223,7 @@ def download_award_excel(award_id):
     if personnel:
         ws.cell(row=row, column=1, value="Personnel").font = bold
         row += 1
-        headers = ["Name", "Position", "Hours by Year", "Same Each Year?"]
+        headers = ["Name", "Position", "Hours by Year", "Rate per Hour", "Total Amount", "Same Each Year?"]
         for col, h in enumerate(headers, start=1):
             cell = ws.cell(row=row, column=col, value=h)
             cell.font = bold
@@ -1171,12 +1244,27 @@ def download_award_excel(award_id):
             return ", ".join(parts)
 
         for p in personnel:
+            rate = float(p.get("rate_per_hour") or 0)
+            total = float(p.get("total") or 0)
+            # Calculate total if not provided
+            if total == 0 and rate > 0:
+                hours_list = p.get("hours", [])
+                if isinstance(hours_list, list):
+                    total_hours = sum(float(h.get("hours", 0) or 0) for h in hours_list if isinstance(h, dict))
+                    total = total_hours * rate
+            
             ws.cell(row=row, column=1, value=p.get("name") or "").border = border
             ws.cell(row=row, column=2, value=p.get("position") or "").border = border
             ws.cell(row=row, column=3, value=hours_text(p.get("hours"))).border = border
+            ws.cell(row=row, column=4, value=rate if rate > 0 else "").border = border
+            if rate > 0:
+                ws.cell(row=row, column=4).number_format = '$#,##0.00'
+            ws.cell(row=row, column=5, value=total if total > 0 else "").border = border
+            if total > 0:
+                ws.cell(row=row, column=5).number_format = '$#,##0.00'
             ws.cell(
                 row=row,
-                column=4,
+                column=6,
                 value="Yes" if p.get("same_each_year") else "No",
             ).border = border
             row += 1
@@ -1187,9 +1275,7 @@ def download_award_excel(award_id):
         ws.cell(row=row, column=1, value="Travel").font = bold
         row += 1
         headers = [
-            "Type", "Description",
-            "Flight Cost",
-            "Taxi/Day", "Food & Lodge/Day",
+            "Type", "Description", "Total Estimated Amount"
         ]
         for col, h in enumerate(headers, start=1):
             cell = ws.cell(row=row, column=col, value=h)
@@ -1201,16 +1287,27 @@ def download_award_excel(award_id):
 
         def add_travel_row(travel_type, t):
             nonlocal row
-            cols = [
-                travel_type,
-                t.get("description") or "",
-                t.get("flight_cost") or t.get("flight") or "",
-                t.get("taxi_per_day") or "",
-                t.get("food_lodge_per_day") or t.get("food_per_day") or "",
-            ]
-            for col, val in enumerate(cols, start=1):
-                cell = ws.cell(row=row, column=col, value=val)
-                cell.border = border
+            # Handle new format (total_amount) and old format (flight/taxi/food)
+            total_amount = float(t.get("total_amount") or 0)
+            if total_amount > 0:
+                ws.cell(row=row, column=1, value=travel_type).border = border
+                ws.cell(row=row, column=2, value=t.get("description") or "").border = border
+                ws.cell(row=row, column=3, value=total_amount).border = border
+                ws.cell(row=row, column=3).number_format = '$#,##0.00'
+            else:
+                # Old format fallback
+                flight = float(t.get("flight_cost") or t.get("flight") or 0)
+                taxi = float(t.get("taxi_per_day") or 0)
+                food = float(t.get("food_lodge_per_day") or t.get("food_per_day") or 0)
+                days = float(t.get("days") or 0)
+                old_total = flight + (taxi + food) * days if days > 0 else flight
+                ws.cell(row=row, column=1, value=travel_type).border = border
+                ws.cell(row=row, column=2, value=t.get("description") or "").border = border
+                if old_total > 0:
+                    ws.cell(row=row, column=3, value=old_total).border = border
+                    ws.cell(row=row, column=3).number_format = '$#,##0.00'
+                else:
+                    ws.cell(row=row, column=3, value="").border = border
             row += 1
 
         for t in domestic_travel:
@@ -1233,17 +1330,18 @@ def download_award_excel(award_id):
         row += 1
 
         for m in materials:
-            cols = [
-                m.get("description") or "",
-                m.get("cost") or "",
-            ]
-            for col, val in enumerate(cols, start=1):
-                cell = ws.cell(row=row, column=col, value=val)
-                cell.border = border
+            cost = float(m.get("cost") or 0)
+            ws.cell(row=row, column=1, value=m.get("description") or "").border = border
+            if cost > 0:
+                ws.cell(row=row, column=2, value=cost).border = border
+                ws.cell(row=row, column=2).number_format = '$#,##0.00'
+            else:
+                ws.cell(row=row, column=2, value="").border = border
             row += 1
+        row += 1
+    
     # Equipment section
     if equipment:
-        row += 2
         ws.cell(row=row, column=1, value="Equipment").font = bold
         row += 1
         headers = ["Description", "Cost"]
@@ -1257,12 +1355,18 @@ def download_award_excel(award_id):
         row += 1
 
         for e in equipment:
+            cost = float(e.get("cost") or 0)
             ws.cell(row=row, column=1, value=e.get("description") or "").border = border
-            ws.cell(row=row, column=2, value=e.get("cost") or "").border = border
+            if cost > 0:
+                ws.cell(row=row, column=2, value=cost).border = border
+                ws.cell(row=row, column=2).number_format = '$#,##0.00'
+            else:
+                ws.cell(row=row, column=2, value="").border = border
             row += 1
+        row += 1
+    
     # Other Direct Costs
     if other_direct:
-        row += 2
         ws.cell(row=row, column=1, value="Other Direct Costs").font = bold
         row += 1
         headers = ["Description", "Cost"]
@@ -1276,8 +1380,13 @@ def download_award_excel(award_id):
         row += 1
 
         for d in other_direct:
+            cost = float(d.get("cost") or 0)
             ws.cell(row=row, column=1, value=d.get("description") or "").border = border
-            ws.cell(row=row, column=2, value=d.get("cost") or "").border = border
+            if cost > 0:
+                ws.cell(row=row, column=2, value=cost).border = border
+                ws.cell(row=row, column=2).number_format = '$#,##0.00'
+            else:
+                ws.cell(row=row, column=2, value="").border = border
             row += 1
     # Save to memory and return
     bio = BytesIO()
