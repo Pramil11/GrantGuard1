@@ -1469,11 +1469,10 @@ def award_approve(award_id):
             (award_id,),
         )
         conn.commit()
+                        # Initialize budget lines for approved award (must happen after commit)
+        initialize_budget_lines(award_id)
         cur.close()
         conn.close()
-        
-        # Initialize budget lines for approved award (must happen after commit)
-        initialize_budget_lines(award_id)
     except Exception as e:
         print(f"DB approve award error: {e}")
         conn.rollback()
