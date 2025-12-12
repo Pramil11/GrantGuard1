@@ -64,6 +64,13 @@ document.addEventListener('DOMContentLoaded', function () {
       const checkbox  = row.querySelector('input[name="personnel_same_each_year[]"]');
       if (!container) return;
 
+      // Preserve existing hour values before clearing
+      const existingInputs = container.querySelectorAll('input[type="number"]');
+      const savedValues = [];
+      existingInputs.forEach((inp, idx) => {
+        savedValues[idx] = inp.value;
+      });
+
       container.innerHTML = '';
       const inputs = [];
 
@@ -100,6 +107,15 @@ document.addEventListener('DOMContentLoaded', function () {
           container.appendChild(wrapper);
 
           inputs.push(inp);
+        });
+      }
+
+      // Restore saved values if they exist
+      if (savedValues.length > 0) {
+        inputs.forEach((inp, idx) => {
+          if (idx < savedValues.length && savedValues[idx]) {
+            inp.value = savedValues[idx];
+          }
         });
       }
 

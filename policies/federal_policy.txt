@@ -9,6 +9,8 @@ Allowed:
 - Compensation must match institutional base salary and pay rates.
 - Graduate assistants, postdocs, and technicians performing research tasks.
 - Administrative/clerical salary only when specifically justified and approved.
+- Personnel expenses under $12,000 per person per year.
+- Personnel expenses > $12,000 allowed with prior approval.
 
 Not Allowed:
 - Charging salary for effort not actually worked.
@@ -19,6 +21,7 @@ Not Allowed:
 Rules:
 - Effort = salary percentage and must match certified effort reports.
 - Personnel charges must satisfy "allowable, allocable, reasonable, consistently treated."
+- Personnel expenses exceeding $12,000 per person per year require prior approval.
 
 Violations:
 - Charging 30% salary for someone who worked 5%.
@@ -38,11 +41,11 @@ Not Allowed:
 - "Use-it-or-lose-it" purchases at the end of the grant.
 
 Rules:
-- $10,000+ requires formal procurement or sole-source justification.
+- $8,000+ requires formal procurement or sole-source justification.
 - Federal title, tracking, and disposition rules apply.
 
 Violations:
-- Two $6,000 purchases to avoid the $10k procurement rule.
+- Two $4,000 purchases to avoid the $8k procurement rule.
 - Buying a general-use iMac for PI office use.
 
 3. Travel
@@ -51,6 +54,8 @@ Allowed:
 - Economy-class travel related to the research project.
 - International travel following the Fly America Act.
 - Per diem rates must follow federal guidelines.
+- Travel expenses under $5,000 per trip.
+- Travel expenses > $5,000 allowed with prior approval.
 
 Not Allowed:
 - Business/first-class travel (except disability accommodation).
@@ -60,6 +65,7 @@ Not Allowed:
 Rules:
 - Travel must clearly benefit the project scientifically.
 - Fly America exceptions must be documented before reimbursement.
+- Travel expenses exceeding $5,000 per trip require prior approval.
 
 Violations:
 - Booking a foreign airline without exemption documentation.
@@ -85,7 +91,35 @@ Violations:
 - Hiring PI's cousin's business.
 - Missing quotes or missing monitoring documents.
 
-5. Documentation & Recordkeeping
+5. Materials & Supplies
+
+Allowed:
+- Research materials, chemicals, reagents, consumables necessary for project.
+- Materials and supplies under $5,000 per item.
+- Materials and supplies > $5,000 allowed with prior approval.
+
+Not Allowed:
+- Office supplies not directly linked to research.
+- Personal items or non-research consumables.
+
+Rules:
+- Materials and supplies exceeding $5,000 per item require prior approval.
+
+6. Other Direct Costs
+
+Allowed:
+- Participant incentives, publication fees, specialized services.
+- Other direct costs under $5,000 per item.
+- Other direct costs > $5,000 allowed with prior approval.
+
+Not Allowed:
+- Unrelated consulting or services.
+- Membership dues unless required for publishing.
+
+Rules:
+- Other direct costs exceeding $5,000 per item require prior approval.
+
+7. Documentation & Recordkeeping
 
 Required:
 - Receipts, invoices, travel justification, proof of delivery.
@@ -95,7 +129,7 @@ Required:
 
 Not Allowed:
 - Vague purpose statements (e.g., "for research use").
-- Missing receipts over the university threshold.
+- Missing receipts over $8,000 threshold.
 - Altered or incomplete documentation.
 
 Violations:

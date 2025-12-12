@@ -6,6 +6,7 @@ import os
 import json
 from datetime import date
 from io import BytesIO
+from urllib.parse import quote
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from reportlab.lib.pagesizes import letter
@@ -2487,7 +2488,10 @@ def transaction_new():
     # Get budget status
     budget_status = get_budget_status(award_id)
     
-    return render_template("transaction_new.html", award=award, budget_status=budget_status, user=u)
+    # Get error message from query parameter if present
+    error_message = request.args.get("error", "")
+    
+    return render_template("transaction_new.html", award=award, budget_status=budget_status, user=u, error=error_message)
 
 
 @app.route("/transactions", methods=["POST"])
@@ -2572,7 +2576,9 @@ def transaction_create():
         # If no budget allocated yet, allow the transaction (it will create the budget line)
         # Remaining = allocated - spent - committed, so check against remaining
         if allocated > 0 and amount_val > remaining:
-            return make_response(f"Insufficient budget. Remaining: ${remaining:,.2f}", 400)
+            # Redirect back to form with error message (URL encode the error)
+            error_msg = f"Insufficient budget for {transaction_category}. Remaining: ${remaining:,.2f}, Requested: ${amount_val:,.2f}"
+            return redirect(url_for('transaction_new', award_id=award_id, error=error_msg))
         
         # Insert transaction
         cur.execute(
@@ -3471,8 +3477,64 @@ def read_policy_file(policy_name):
         return ""
 
 
-def format_award_for_llm(award, personnel, domestic_travel, international_travel, materials):
+def format_award_for_llm(award, personnel, domestic_travel, international_travel, materials, equipment=None, other_direct=None):
     """Format award data into a structured text for LLM analysis."""
+    
+    # Calculate personnel budget from personnel data
+    personnel_budget = 0.0
+    if personnel:
+        for p in personnel:
+            if isinstance(p, dict):
+                # Use total if provided, otherwise calculate from hours * rate
+                total_from_form = float(p.get('total', 0) or 0)
+                if total_from_form > 0:
+                    personnel_budget += total_from_form
+                else:
+                    hours_list = p.get('hours', [])
+                    rate_per_hour = float(p.get('rate_per_hour', 0) or 0)
+                    if isinstance(hours_list, list) and rate_per_hour > 0:
+                        total_hours = sum(float(h.get('hours', 0) or 0) for h in hours_list if isinstance(h, dict))
+                        personnel_budget += total_hours * rate_per_hour
+    
+    # Calculate travel budget
+    travel_budget = 0.0
+    if domestic_travel:
+        for t in domestic_travel:
+            if isinstance(t, dict):
+                total_amount = float(t.get('total_amount', 0) or 0)
+                if total_amount > 0:
+                    travel_budget += total_amount
+    if international_travel:
+        for t in international_travel:
+            if isinstance(t, dict):
+                total_amount = float(t.get('total_amount', 0) or 0)
+                if total_amount > 0:
+                    travel_budget += total_amount
+    
+    # Calculate equipment budget from equipment_json
+    equipment_budget = 0.0
+    if equipment:
+        for e in equipment:
+            if isinstance(e, dict):
+                cost = float(e.get('cost', 0) or 0)
+                equipment_budget += cost
+    
+    # Calculate materials budget from materials_json
+    materials_budget = 0.0
+    if materials:
+        for m in materials:
+            if isinstance(m, dict):
+                cost = float(m.get('cost', 0) or 0)
+                materials_budget += cost
+    
+    # Calculate other direct costs budget
+    other_direct_budget = 0.0
+    if other_direct:
+        for o in other_direct:
+            if isinstance(o, dict):
+                cost = float(o.get('cost', 0) or 0)
+                other_direct_budget += cost
+    
     award_text = f"""
 AWARD INFORMATION:
 - Title: {award.get('title', 'N/A')}
@@ -3484,10 +3546,11 @@ AWARD INFORMATION:
 - College: {award.get('college', 'N/A')}
 
 BUDGET BREAKDOWN:
-- Personnel Budget: ${float(award.get('budget_personnel', 0) or 0):,.2f}
-- Equipment Budget: ${float(award.get('budget_equipment', 0) or 0):,.2f}
-- Travel Budget: ${float(award.get('budget_travel', 0) or 0):,.2f}
-- Materials Budget: ${float(award.get('budget_materials', 0) or 0):,.2f}
+- Personnel Budget: ${personnel_budget:,.2f}
+- Equipment Budget: ${equipment_budget:,.2f}
+- Travel Budget: ${travel_budget:,.2f}
+- Materials Budget: ${materials_budget:,.2f}
+- Other Direct Costs Budget: ${other_direct_budget:,.2f}
 """
     
     if personnel:
@@ -3497,48 +3560,90 @@ BUDGET BREAKDOWN:
                 name = p.get('name', 'Unknown')
                 role = p.get('position', 'N/A') or p.get('role', 'N/A')
                 hours_list = p.get('hours', [])
+                rate_per_hour = float(p.get('rate_per_hour', 0) or 0)
+                total_from_form = float(p.get('total', 0) or 0)
+                
                 total_hours = 0
                 if isinstance(hours_list, list):
                     for h in hours_list:
                         if isinstance(h, dict):
                             total_hours += float(h.get('hours', 0) or 0)
-                award_text += f"- {name} ({role}): {total_hours} hours\n"
+                
+                # Calculate total if not provided
+                if total_from_form > 0:
+                    personnel_total = total_from_form
+                elif total_hours > 0 and rate_per_hour > 0:
+                    personnel_total = total_hours * rate_per_hour
+                else:
+                    personnel_total = 0
+                
+                award_text += f"- {name} ({role}): {total_hours} hours"
+                if rate_per_hour > 0:
+                    award_text += f", Rate: ${rate_per_hour:,.2f}/hour"
+                if personnel_total > 0:
+                    award_text += f", Total: ${personnel_total:,.2f}"
+                award_text += "\n"
     
     if domestic_travel:
         award_text += "\nDOMESTIC TRAVEL:\n"
         for t in domestic_travel:
             if isinstance(t, dict):
                 description = t.get('description', 'N/A')
-                flight = t.get('flight', 0) or t.get('flight_cost', 0)
-                taxi = t.get('taxi', 0) or t.get('taxi_per_day', 0)
-                food = t.get('food', 0) or t.get('food_per_day', 0)
-                days = t.get('days', 0) or t.get('num_days', 0)
-                award_text += f"- {description}: Flight: ${float(flight or 0):,.2f}, Taxi/day: ${float(taxi or 0):,.2f}, Food/day: ${float(food or 0):,.2f}, Days: {days}\n"
+                total_amount = float(t.get('total_amount', 0) or 0)
+                if total_amount > 0:
+                    award_text += f"- {description}: Total Estimated Amount: ${total_amount:,.2f}\n"
+                else:
+                    # Fallback to old format if total_amount not available
+                    flight = t.get('flight', 0) or t.get('flight_cost', 0)
+                    taxi = t.get('taxi', 0) or t.get('taxi_per_day', 0)
+                    food = t.get('food', 0) or t.get('food_per_day', 0)
+                    days = t.get('days', 0) or t.get('num_days', 0)
+                    award_text += f"- {description}: Flight: ${float(flight or 0):,.2f}, Taxi/day: ${float(taxi or 0):,.2f}, Food/day: ${float(food or 0):,.2f}, Days: {days}\n"
     
     if international_travel:
         award_text += "\nINTERNATIONAL TRAVEL:\n"
         for t in international_travel:
             if isinstance(t, dict):
                 description = t.get('description', 'N/A')
-                flight = t.get('flight', 0) or t.get('flight_cost', 0)
-                taxi = t.get('taxi', 0) or t.get('taxi_per_day', 0)
-                food = t.get('food', 0) or t.get('food_per_day', 0)
-                days = t.get('days', 0) or t.get('num_days', 0)
-                award_text += f"- {description}: Flight: ${float(flight or 0):,.2f}, Taxi/day: ${float(taxi or 0):,.2f}, Food/day: ${float(food or 0):,.2f}, Days: {days}\n"
+                total_amount = float(t.get('total_amount', 0) or 0)
+                if total_amount > 0:
+                    award_text += f"- {description}: Total Estimated Amount: ${total_amount:,.2f}\n"
+                else:
+                    # Fallback to old format if total_amount not available
+                    flight = t.get('flight', 0) or t.get('flight_cost', 0)
+                    taxi = t.get('taxi', 0) or t.get('taxi_per_day', 0)
+                    food = t.get('food', 0) or t.get('food_per_day', 0)
+                    days = t.get('days', 0) or t.get('num_days', 0)
+                    award_text += f"- {description}: Flight: ${float(flight or 0):,.2f}, Taxi/day: ${float(taxi or 0):,.2f}, Food/day: ${float(food or 0):,.2f}, Days: {days}\n"
+    
+    if equipment:
+        award_text += "\nEQUIPMENT:\n"
+        for e in equipment:
+            if isinstance(e, dict):
+                description = e.get('description', 'N/A')
+                cost = float(e.get('cost', 0) or 0)
+                award_text += f"- {description}, Cost: ${cost:,.2f}\n"
     
     if materials:
         award_text += "\nMATERIALS & SUPPLIES:\n"
         for m in materials:
             if isinstance(m, dict):
                 description = m.get('description', 'N/A')
-                category = m.get('category', '') or m.get('material_type', '') or m.get('type', '')
-                cost = m.get('cost', 0)
-                award_text += f"- {category}: {description}, Cost: ${float(cost or 0):,.2f}\n"
+                cost = float(m.get('cost', 0) or 0)
+                award_text += f"- {description}, Cost: ${cost:,.2f}\n"
+    
+    if other_direct:
+        award_text += "\nOTHER DIRECT COSTS:\n"
+        for o in other_direct:
+            if isinstance(o, dict):
+                description = o.get('description', 'N/A')
+                cost = float(o.get('cost', 0) or 0)
+                award_text += f"- {description}, Cost: ${cost:,.2f}\n"
     
     return award_text
 
 
-def check_policy_compliance(award, personnel, domestic_travel, international_travel, materials):
+def check_policy_compliance(award, personnel, domestic_travel, international_travel, materials, equipment=None, other_direct=None):
     """
     Check award compliance against University, Sponsor, and Federal policies using LLM.
     Returns a dict with compliance results for each policy level.
@@ -3549,7 +3654,7 @@ def check_policy_compliance(award, personnel, domestic_travel, international_tra
     sponsor_policy = read_policy_file("sponsor")
     
     # Format award data
-    award_text = format_award_for_llm(award, personnel, domestic_travel, international_travel, materials)
+    award_text = format_award_for_llm(award, personnel, domestic_travel, international_travel, materials, equipment, other_direct)
     
     # Get OpenAI API key from environment
     api_key = os.getenv("OPENAI_API_KEY")
@@ -3819,12 +3924,14 @@ def check_award_compliance(award_id):
         domestic_travel = parse_json("domestic_travel_json")
         international_travel = parse_json("international_travel_json")
         materials = parse_json("materials_json")
+        equipment = parse_json("equipment_json")
+        other_direct = parse_json("other_direct_json")
         
         cur.close()
         conn.close()
         
         # Check compliance
-        compliance_results = check_policy_compliance(award, personnel, domestic_travel, international_travel, materials)
+        compliance_results = check_policy_compliance(award, personnel, domestic_travel, international_travel, materials, equipment, other_direct)
         
         # Store results in database (optional - update ai_review_notes)
         if "error" not in compliance_results:

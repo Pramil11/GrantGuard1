@@ -8,6 +8,8 @@ Allowed:
 - PI and Co-PI effort as listed in the approved proposal.
 - Graduate students, undergraduates, and technicians budgeted in proposal.
 - Salary changes that receive sponsor approval.
+- Personnel expenses under $12,000 per person per year.
+- Personnel expenses > $12,000 allowed with prior approval.
 
 Not Allowed:
 - Personnel not listed in the proposal without sponsor approval.
@@ -17,6 +19,7 @@ Not Allowed:
 Rules:
 - Reducing PI effort by >25% requires sponsor approval.
 - NIH and NSF salary caps must be followed.
+- Personnel expenses exceeding $12,000 per person per year require prior approval.
 
 Violations:
 - Adding a new technician without sponsor notification.
@@ -27,10 +30,15 @@ Violations:
 Allowed:
 - Equipment explicitly listed in the proposal budget and justification.
 - Scientific upgrades or replacements with valid justification.
+- Equipment under $8,000 per item.
+- Equipment > $8,000 allowed with prior approval.
 
 Not Allowed:
 - Equipment not originally included in the proposal.
 - General-purpose equipment unless justified.
+
+Rules:
+- Equipment exceeding $8,000 per item requires prior approval.
 
 Violations:
 - Buying drones/robots not listed in proposal.
@@ -43,6 +51,8 @@ Allowed:
 - International travel allowed if:
   - Fly America Act is followed AND
   - It benefits the project.
+- Travel expenses under $5,000 per trip.
+- Travel expenses > $5,000 allowed with prior approval.
 
 Not Allowed:
 - Personal or recreational travel.
@@ -51,12 +61,41 @@ Not Allowed:
 Sponsor Rules:
 - NSF requires travel justification tied to project outcomes.
 - DoD may require pre-trip security briefings.
+- Travel expenses exceeding $5,000 per trip require prior approval.
 
 Violations:
 - Charging flight costs for family members.
 - Attending unrelated conferences.
 
-4. Participant Support Costs (PSC)
+4. Materials & Supplies
+
+Allowed:
+- Research materials, chemicals, reagents, consumables necessary for project.
+- Materials and supplies under $5,000 per item.
+- Materials and supplies > $5,000 allowed with prior approval.
+
+Not Allowed:
+- Office supplies not directly linked to research.
+- Personal items or non-research consumables.
+
+Rules:
+- Materials and supplies exceeding $5,000 per item require prior approval.
+
+5. Other Direct Costs
+
+Allowed:
+- Participant incentives, publication fees, specialized services.
+- Other direct costs under $5,000 per item.
+- Other direct costs > $5,000 allowed with prior approval.
+
+Not Allowed:
+- Unrelated consulting or services.
+- Membership dues unless required for publishing.
+
+Rules:
+- Other direct costs exceeding $5,000 per item require prior approval.
+
+6. Participant Support Costs (PSC)
 
 Allowed:
 - Stipends, lodging, meals for participants.
@@ -70,7 +109,7 @@ Violations:
 - Buying laptops from PSC funds.
 - Charging PI time to PSC.
 
-5. Subawards
+7. Subawards
 
 Allowed:
 - Subrecipients named in the proposal.

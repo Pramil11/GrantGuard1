@@ -8,6 +8,8 @@ Allowed:
 - Individuals directly contributing to project aims.
 - Graduate assistants under HR rules.
 - Undergraduate researchers with defined tasks.
+- Personnel expenses under $12,000 per person per year.
+- Personnel expenses > $12,000 allowed with prior approval.
 
 Not Allowed:
 - Administrative, clerical, HR, IT staff unless 100% allocated to project.
@@ -17,6 +19,7 @@ Not Allowed:
 Rules:
 - Must follow institutional base salary rates.
 - Hourly workers require timesheets.
+- Personnel expenses exceeding $12,000 per person per year require prior approval.
 
 Violations:
 - Charging a secretary for occasional help.
@@ -25,8 +28,8 @@ Violations:
 2. Equipment
 
 Allowed:
-- Research equipment under university threshold (e.g., < $5,000).
-- Equipment > $5,000 allowed with prior approval.
+- Research equipment under university threshold (e.g., < $8,000).
+- Equipment > $8,000 allowed with prior approval.
 - Repairs and maintenance.
 
 Not Allowed:
@@ -43,11 +46,16 @@ Allowed:
 - Domestic and international travel that supports research.
 - Conference travel where PI or students present project work.
 - University-approved per-diem rates.
+- Travel expenses under $5,000 per trip.
+- Travel expenses > $5,000 allowed with prior approval.
 
 Not Allowed:
 - First-class or business-class travel.
 - Personal vacation time charged to the grant.
 - Alcohol.
+
+Rules:
+- Travel expenses exceeding $5,000 per trip require prior approval.
 
 Violations:
 - Charging a hotel for extra personal days.
@@ -59,11 +67,16 @@ Allowed:
 - Chemicals, reagents, consumables.
 - Project-specific software licenses.
 - Research computing supplies.
+- Materials and supplies under $5,000 per item.
+- Materials and supplies > $5,000 allowed with prior approval.
 
 Not Allowed:
 - Office supplies not directly linked to research.
 - Food/snacks/coffee.
 - Decorative items.
+
+Rules:
+- Materials and supplies exceeding $5,000 per item require prior approval.
 
 Violations:
 - Buying balloons for lab events.
@@ -75,10 +88,15 @@ Allowed:
 - Participant incentives.
 - Publication and open-access fees.
 - Specialized data storage fees.
+- Other direct costs under $5,000 per item.
+- Other direct costs > $5,000 allowed with prior approval.
 
 Not Allowed:
 - Membership dues unless required for publishing.
 - Consulting unrelated to research.
+
+Rules:
+- Other direct costs exceeding $5,000 per item require prior approval.
 
 Violations:
 - Paying honoraria not budgeted.

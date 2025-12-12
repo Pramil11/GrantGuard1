@@ -48,12 +48,19 @@
         </div>
       </div>
 
-      <form method="POST" action="{{ url_for('transaction_create') }}" class="card" style="display: flex; flex-direction: column; gap: 16px;">
+      {% if error %}
+      <div class="card" style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 16px; margin-bottom: 24px;">
+        <div style="color: #ef4444; font-weight: 600; margin-bottom: 4px;">Error</div>
+        <div style="color: #991b1b; font-size: 0.875em;">{{ error }}</div>
+      </div>
+      {% endif %}
+
+      <form method="POST" action="{{ url_for('transaction_create') }}" class="card" style="display: flex; flex-direction: column; gap: 16px;" id="transaction-form">
         <input type="hidden" name="award_id" value="{{ award.award_id }}">
 
         <div>
           <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--gg-text-main);">Category *</label>
-          <select name="category" required style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: var(--gg-bg-card); color: var(--gg-text-main); font-size: 0.875em;">
+          <select name="category" id="category-select" required style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: var(--gg-bg-card); color: var(--gg-text-main); font-size: 0.875em;">
             <option value="">Select Category</option>
             <option value="Personnel">Personnel</option>
             <option value="Travel">Travel</option>
@@ -66,7 +73,11 @@
 
         <div>
           <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--gg-text-main);">Amount (USD) *</label>
-          <input type="number" name="amount" step="0.01" min="0.01" required placeholder="0.00" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: var(--gg-bg-card); color: var(--gg-text-main); font-size: 0.875em;">
+          <input type="number" name="amount" id="amount-input" step="0.01" min="0.01" required placeholder="0.00" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: var(--gg-bg-card); color: var(--gg-text-main); font-size: 0.875em;">
+          <div id="budget-warning" style="display: none; margin-top: 8px; padding: 12px; background: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
+            <div style="color: #92400e; font-weight: 600; font-size: 0.875em; margin-bottom: 4px;">⚠ Budget Warning</div>
+            <div style="color: #78350f; font-size: 0.8125em;" id="warning-text"></div>
+          </div>
         </div>
 
         <div>
@@ -87,5 +98,75 @@
     </main>
   </div>
   <script src="{{ url_for('static', filename='theme.js') }}"></script>
+  <script>
+    // Budget status data for client-side validation
+    const budgetStatus = {{ budget_status | tojson }};
+    
+    const categorySelect = document.getElementById('category-select');
+    const amountInput = document.getElementById('amount-input');
+    const budgetWarning = document.getElementById('budget-warning');
+    const warningText = document.getElementById('warning-text');
+    
+    function checkBudget() {
+      const category = categorySelect.value;
+      const amount = parseFloat(amountInput.value) || 0;
+      
+      if (!category || amount <= 0) {
+        budgetWarning.style.display = 'none';
+        return;
+      }
+      
+      // Map category names to match budget status keys
+      let budgetKey = category;
+      if (category === 'Other Direct Costs') {
+        budgetKey = 'Other Direct Costs';
+      } else if (category === 'Other') {
+        // Check if "Other Direct Costs" exists, otherwise use "Other"
+        budgetKey = budgetStatus['Other Direct Costs'] ? 'Other Direct Costs' : 'Other';
+      }
+      
+      const categoryBudget = budgetStatus[budgetKey];
+      
+      if (!categoryBudget) {
+        budgetWarning.style.display = 'none';
+        return;
+      }
+      
+      const allocated = categoryBudget.allocated || 0;
+      const remaining = categoryBudget.remaining || 0;
+      
+      if (allocated > 0 && amount > remaining) {
+        budgetWarning.style.display = 'block';
+        warningText.innerHTML = `
+          This amount ($${amount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}) exceeds the remaining budget 
+          ($${remaining.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}) for ${category}. 
+          ${allocated > 0 ? `Total allocated: $${allocated.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : ''}
+        `;
+        budgetWarning.style.background = '#fef2f2';
+        budgetWarning.style.borderLeftColor = '#ef4444';
+        warningText.style.color = '#991b1b';
+      } else if (allocated > 0 && amount > allocated * 0.9) {
+        // Warn if approaching the allocated amount (90% threshold)
+        budgetWarning.style.display = 'block';
+        warningText.innerHTML = `
+          This amount is approaching the allocated budget for ${category}. 
+          Remaining: $${remaining.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+        `;
+        budgetWarning.style.background = '#fef3c7';
+        budgetWarning.style.borderLeftColor = '#f59e0b';
+        warningText.style.color = '#78350f';
+      } else {
+        budgetWarning.style.display = 'none';
+      }
+    }
+    
+    categorySelect.addEventListener('change', checkBudget);
+    amountInput.addEventListener('input', checkBudget);
+    
+    // Check on page load if there's a pre-filled amount
+    if (amountInput.value) {
+      checkBudget();
+    }
+  </script>
 </body>
 </html>

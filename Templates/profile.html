@@ -99,7 +99,11 @@
             <tbody>
               {% for award in awards %}
               <tr>
-                <td class="award-title">{{ award.title }}</td>
+                <td class="award-title">
+                  <a href="{{ url_for('award_view', award_id=award.award_id) }}" style="color: #0b84f3; text-decoration: none; font-weight: 600;">
+                    {{ award.title }}
+                  </a>
+                </td>
                 <td>{{ award.sponsor_type or '—' }}</td>
                 <td class="award-amount">${{ '{:,.2f}'.format(award.amount) }}</td>
                 <td class="award-timeline">{{ award.start_date }} → {{ award.end_date }}</td>
