@@ -156,6 +156,11 @@
           <button type="submit" class="btn" style="background: #10b981;">Approve Subaward</button>
         </form>
         {% endif %}
+        {% if user.role in ('Admin', 'Finance') and subaward.status == 'Approved' %}
+        <form method="POST" action="{{ url_for('subaward_pay', subaward_id=subaward.subaward_id) }}" style="display: inline;">
+          <button type="submit" class="btn" style="background: #10b981;">Process Payment</button>
+        </form>
+        {% endif %}
         <form method="POST" action="{{ url_for('subaward_delete', subaward_id=subaward.subaward_id) }}" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this subaward?');">
           <button type="submit" class="btn" style="background: #ef4444;">Delete</button>
         </form>

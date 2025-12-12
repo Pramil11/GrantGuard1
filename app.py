@@ -81,31 +81,26 @@ def get_db():
         return None
 
 
-def update_transactions_status_constraint():
-    """Update transactions table constraint to include 'Paid' status."""
+def update_subawards_status_constraint():
+    """Update subawards status constraint to include 'Paid' status."""
     conn = get_db()
     if conn is None:
         return False
     
     try:
         cur = conn.cursor()
-        # Drop the old constraint if it exists
-        cur.execute("""
-            ALTER TABLE transactions
-            DROP CONSTRAINT IF EXISTS transactions_status_check
-        """)
-        # Add the new constraint with 'Paid' status
-        cur.execute("""
-            ALTER TABLE transactions
-            ADD CONSTRAINT transactions_status_check
-            CHECK (status IN ('Pending', 'Approved', 'Paid', 'Declined'))
-        """)
+        # Drop existing constraint if it exists
+        cur.execute("ALTER TABLE subawards DROP CONSTRAINT IF EXISTS subawards_status_check")
+        # Add new constraint with 'Paid' status
+        cur.execute(
+            "ALTER TABLE subawards ADD CONSTRAINT subawards_status_check CHECK (status IN ('Pending', 'Approved', 'Paid', 'Declined'))"
+        )
         conn.commit()
         cur.close()
         conn.close()
         return True
     except Exception as e:
-        print(f"Error updating transactions status constraint: {e}")
+        print(f"Error updating subawards status constraint: {e}")
         if conn:
             conn.rollback()
             conn.close()
@@ -204,8 +199,9 @@ def init_db_if_needed():
     finally:
         conn.close()
     
-    # Update transactions status constraint after schema initialization
+    # Update transactions and subawards status constraints after schema initialization
     update_transactions_status_constraint()
+    update_subawards_status_constraint()
 
 
 @app.route("/")
@@ -331,6 +327,35 @@ def dashboard():
                     total_approved = float(row['total']) if row['total'] is not None else 0.0
                 else:
                     total_approved = 0.0
+                
+                # Count pending transactions and subawards for each award
+                for award in awards:
+                    award_id = award['award_id']
+                    
+                    # Count pending transactions
+                    cur.execute(
+                        """
+                        SELECT COUNT(*) as count
+                        FROM transactions
+                        WHERE award_id = %s AND status = 'Pending'
+                        """,
+                        (award_id,)
+                    )
+                    txn_result = cur.fetchone()
+                    award['pending_transactions'] = txn_result['count'] if txn_result else 0
+                    
+                    # Count pending subawards
+                    cur.execute(
+                        """
+                        SELECT COUNT(*) as count
+                        FROM subawards
+                        WHERE award_id = %s AND status = 'Pending'
+                        """,
+                        (award_id,)
+                    )
+                    sub_result = cur.fetchone()
+                    award['pending_subawards'] = sub_result['count'] if sub_result else 0
+                
                 cur.close()
             except Exception as e:
                 print(f"DB fetch awards (admin) error: {e}")
@@ -1675,8 +1700,8 @@ def award_edit(award_id):
 def award_delete(award_id):
     """Delete an award.
 
-    - PIs can delete their own awards.
-    - Admins can delete awards that are already declined.
+    - PIs can delete their own awards (any status).
+    - Admins can delete declined awards or approved awards (with confirmation).
     """
     u = session.get("user")
     if not u:
@@ -1696,7 +1721,7 @@ def award_delete(award_id):
                 (award_id, u["email"]),
             )
         else:
-            # Admin: can delete only if the award is declined
+            # Admin: can delete any award
             cur.execute(
                 "SELECT award_id, status FROM awards WHERE award_id=%s",
                 (award_id,),
@@ -1711,19 +1736,30 @@ def award_delete(award_id):
 
         # Authorization rules
         if u["role"] == "PI":
-            # PIs can delete their own awards (any status for now)
+            # PIs can delete their own awards (any status)
             pass
         elif u["role"] == "Admin":
-            if (award.get("status") or "").lower() != "declined":
-                cur.close()
-                conn.close()
-                return make_response("Admins may only delete declined awards.", 403)
+            # Admins can delete any award (declined or approved)
+            # Check if there are transactions or subawards (warning but allow deletion)
+            cur.execute(
+                "SELECT COUNT(*) as count FROM transactions WHERE award_id=%s",
+                (award_id,)
+            )
+            txn_count = cur.fetchone()['count'] or 0
+            
+            cur.execute(
+                "SELECT COUNT(*) as count FROM subawards WHERE award_id=%s",
+                (award_id,)
+            )
+            sub_count = cur.fetchone()['count'] or 0
+            
+            if txn_count > 0 or sub_count > 0:
+                # Warn but allow deletion (cascade will handle it)
+                print(f"Warning: Deleting award {award_id} with {txn_count} transactions and {sub_count} subawards")
         else:
-                cur.close()
-                conn.close()
-                # Update transactions status constraint
-                update_transactions_status_constraint()
-                return redirect(url_for("dashboard"))
+            cur.close()
+            conn.close()
+            return redirect(url_for("dashboard"))
 
         # Perform delete
         cur.execute(
@@ -2383,10 +2419,50 @@ def subaward_approve(subaward_id):
         
         award_id = subaward['award_id']
         
+        # Get subaward amount
+        cur.execute(
+            "SELECT amount FROM subawards WHERE subaward_id = %s",
+            (subaward_id,)
+        )
+        subaward_data = cur.fetchone()
+        amount_val = float(subaward_data['amount'] or 0) if subaward_data else 0.0
+        
+        # Update subaward status to Approved
         cur.execute(
             "UPDATE subawards SET status = 'Approved' WHERE subaward_id = %s",
             (subaward_id,)
         )
+        
+        # Add to committed budget for Subawards category
+        cur.execute(
+            """
+            SELECT line_id FROM budget_lines
+            WHERE award_id = %s AND category = 'Subawards'
+            """,
+            (award_id,)
+        )
+        budget_line = cur.fetchone()
+        
+        if budget_line:
+            # Update existing budget line: add to committed
+            cur.execute(
+                """
+                UPDATE budget_lines
+                SET committed_amount = committed_amount + %s
+                WHERE award_id = %s AND category = 'Subawards'
+                """,
+                (amount_val, award_id)
+            )
+        else:
+            # Create budget line if it doesn't exist
+            cur.execute(
+                """
+                INSERT INTO budget_lines (award_id, category, allocated_amount, spent_amount, committed_amount)
+                VALUES (%s, 'Subawards', 0, 0, %s)
+                """,
+                (award_id, amount_val)
+            )
+        
         conn.commit()
         cur.close()
     except Exception as e:
@@ -2395,6 +2471,110 @@ def subaward_approve(subaward_id):
         return make_response("Approve failed", 500)
     finally:
         conn.close()
+    
+    # Redirect to award-specific subawards page
+    return redirect(url_for("subawards_by_award", award_id=award_id))
+
+
+@app.route("/subawards/<int:subaward_id>/pay", methods=["POST"])
+def subaward_pay(subaward_id):
+    """Process payment for an approved subaward (Admin/Finance only).
+    
+    This moves the subaward from Approved to Paid status.
+    The amount moves from committed to spent in the budget.
+    """
+    u = session.get("user")
+    if not u or u.get("role") not in ("Admin", "Finance"):
+        return redirect(url_for("home"))
+    
+    conn = get_db()
+    if conn is None:
+        return make_response("DB connection failed", 500)
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Get subaward details
+        cur.execute(
+            """
+            SELECT s.subaward_id, s.award_id, s.amount, s.status, a.status as award_status
+            FROM subawards s
+            JOIN awards a ON s.award_id = a.award_id
+            WHERE s.subaward_id = %s
+            """,
+            (subaward_id,)
+        )
+        sub = cur.fetchone()
+        
+        if not sub:
+            cur.close()
+            conn.close()
+            return "Subaward not found", 404
+        
+        if sub['status'] != 'Approved':
+            cur.close()
+            conn.close()
+            return "Only approved subawards can be paid", 400
+        
+        if sub['award_status'] != 'Approved':
+            cur.close()
+            conn.close()
+            return "Award must be approved", 400
+        
+        # Convert amount to float
+        amount_val = float(sub['amount'] or 0)
+        award_id = sub['award_id']
+        
+        # Update subaward status to Paid
+        cur.execute(
+            "UPDATE subawards SET status = 'Paid' WHERE subaward_id = %s",
+            (subaward_id,)
+        )
+        
+        # Update budget: move from committed to spent for Subawards category
+        # First check if budget line exists
+        cur.execute(
+            """
+            SELECT line_id FROM budget_lines
+            WHERE award_id = %s AND category = 'Subawards'
+            """,
+            (award_id,)
+        )
+        budget_line = cur.fetchone()
+        
+        if budget_line:
+            # Update existing budget line: reduce committed, increase spent
+            cur.execute(
+                """
+                UPDATE budget_lines
+                SET committed_amount = GREATEST(0, committed_amount - %s),
+                    spent_amount = spent_amount + %s
+                WHERE award_id = %s AND category = 'Subawards'
+                """,
+                (amount_val, amount_val, award_id)
+            )
+        else:
+            # Create budget line if it doesn't exist
+            cur.execute(
+                """
+                INSERT INTO budget_lines (award_id, category, allocated_amount, spent_amount, committed_amount)
+                VALUES (%s, 'Subawards', 0, %s, 0)
+                """,
+                (award_id, amount_val)
+            )
+        
+        conn.commit()
+        cur.close()
+        
+    except Exception as e:
+        print(f"DB pay subaward error: {e}")
+        import traceback
+        traceback.print_exc()
+        conn.rollback()
+        return make_response(f"Payment processing failed: {str(e)}", 500)
+    finally:
+        if conn:
+            conn.close()
     
     # Redirect to award-specific subawards page
     return redirect(url_for("subawards_by_award", award_id=award_id))
@@ -2805,6 +2985,13 @@ def transaction_create():
     amount = request.form.get("amount", "").strip()
     date_submitted = request.form.get("date_submitted", "").strip()
     
+    # Travel detail fields (only for Travel category)
+    travel_flight = request.form.get("travel_flight", "").strip()
+    travel_ground = request.form.get("travel_ground", "").strip()
+    travel_lodging = request.form.get("travel_lodging", "").strip()
+    travel_meals = request.form.get("travel_meals", "").strip()
+    travel_other = request.form.get("travel_other", "").strip()
+    
     if not award_id or not category or not description or not amount or not date_submitted:
         return make_response("Missing required fields", 400)
     
@@ -2812,8 +2999,21 @@ def transaction_create():
         amount_val = float(amount)
         if amount_val <= 0:
             return make_response("Amount must be positive", 400)
+        
+        # Parse travel details if category is Travel
+        travel_flight_val = float(travel_flight) if travel_flight else None
+        travel_ground_val = float(travel_ground) if travel_ground else None
+        travel_lodging_val = float(travel_lodging) if travel_lodging else None
+        travel_meals_val = float(travel_meals) if travel_meals else None
+        travel_other_val = float(travel_other) if travel_other else None
+        
+        # For Travel category, verify total matches sum of components
+        if category == 'Travel':
+            travel_sum = (travel_flight_val or 0) + (travel_ground_val or 0) + (travel_lodging_val or 0) + (travel_meals_val or 0) + (travel_other_val or 0)
+            if abs(travel_sum - amount_val) > 0.01:  # Allow small floating point differences
+                return make_response(f"Travel total (${amount_val:,.2f}) does not match sum of components (${travel_sum:,.2f})", 400)
     except ValueError:
-        return make_response("Invalid amount", 400)
+        return make_response("Invalid amount or travel expense value", 400)
     
     conn = get_db()
     if conn is None:
@@ -2870,6 +3070,9 @@ def transaction_create():
         allocated = cat_budget.get('allocated', 0)
         remaining = cat_budget.get('remaining', 0)
         
+        # Calculate remaining budget
+        remaining = cat_budget.get('remaining', 0)
+        
         # Only check budget if there's an allocated amount for this category
         # If no budget allocated yet, allow the transaction (it will create the budget line)
         # Remaining = allocated - spent - committed, so check against remaining
@@ -2878,15 +3081,29 @@ def transaction_create():
             error_msg = f"Insufficient budget for {transaction_category}. Remaining: ${remaining:,.2f}, Requested: ${amount_val:,.2f}"
             return redirect(url_for('transaction_new', award_id=award_id, error=error_msg))
         
-        # Insert transaction
-        cur.execute(
-            """
-            INSERT INTO transactions (award_id, user_id, category, description, amount, date_submitted, status)
-            VALUES (%s, %s, %s, %s, %s, %s, 'Pending')
-            RETURNING transaction_id
-            """,
-            (award_id, user_id, transaction_category, description, amount_val, date_submitted)
-        )
+        # Insert transaction with travel details if applicable
+        if transaction_category == 'Travel':
+            cur.execute(
+                """
+                INSERT INTO transactions (
+                    award_id, user_id, category, description, amount, date_submitted, status,
+                    travel_flight, travel_ground_transportation, travel_lodging, travel_meals, travel_other
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, 'Pending', %s, %s, %s, %s, %s)
+                RETURNING transaction_id
+                """,
+                (award_id, user_id, transaction_category, description, amount_val, date_submitted,
+                 travel_flight_val, travel_ground_val, travel_lodging_val, travel_meals_val, travel_other_val)
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO transactions (award_id, user_id, category, description, amount, date_submitted, status)
+                VALUES (%s, %s, %s, %s, %s, %s, 'Pending')
+                RETURNING transaction_id
+                """,
+                (award_id, user_id, transaction_category, description, amount_val, date_submitted)
+            )
         transaction_id = cur.fetchone()['transaction_id']
         
         # Pending transactions should NOT be added to committed_amount
@@ -2926,10 +3143,12 @@ def transactions_list():
             cur = conn.cursor(cursor_factory=RealDictCursor)
             
             if award_id:
-                # Get transactions for specific award
+                # Get transactions for specific award (including travel details)
                 cur.execute(
                     """
-                    SELECT t.*, a.title as award_title, u.name as user_name
+                    SELECT t.*, a.title as award_title, u.name as user_name,
+                           t.travel_flight, t.travel_ground_transportation, 
+                           t.travel_lodging, t.travel_meals, t.travel_other
                     FROM transactions t
                     LEFT JOIN awards a ON t.award_id = a.award_id
                     LEFT JOIN users u ON t.user_id = u.user_id
@@ -2939,16 +3158,30 @@ def transactions_list():
                     (award_id,)
                 )
                 transactions = cur.fetchall()
+                # Convert travel amounts to float
+                for txn in transactions:
+                    if txn.get('travel_flight'):
+                        txn['travel_flight'] = float(txn['travel_flight'])
+                    if txn.get('travel_ground_transportation'):
+                        txn['travel_ground_transportation'] = float(txn['travel_ground_transportation'])
+                    if txn.get('travel_lodging'):
+                        txn['travel_lodging'] = float(txn['travel_lodging'])
+                    if txn.get('travel_meals'):
+                        txn['travel_meals'] = float(txn['travel_meals'])
+                    if txn.get('travel_other'):
+                        txn['travel_other'] = float(txn['travel_other'])
                 
                 # Get award details
                 cur.execute("SELECT * FROM awards WHERE award_id = %s", (award_id,))
                 award = cur.fetchone()
             else:
-                # Get all transactions for user
+                # Get all transactions for user (including travel details)
                 if u["role"] == "Admin":
                     cur.execute(
                         """
-                        SELECT t.*, a.title as award_title, u.name as user_name
+                        SELECT t.*, a.title as award_title, u.name as user_name,
+                               t.travel_flight, t.travel_ground_transportation, 
+                               t.travel_lodging, t.travel_meals, t.travel_other
                         FROM transactions t
                         LEFT JOIN awards a ON t.award_id = a.award_id
                         LEFT JOIN users u ON t.user_id = u.user_id
@@ -2958,7 +3191,9 @@ def transactions_list():
                 else:
                     cur.execute(
                         """
-                        SELECT t.*, a.title as award_title, u.name as user_name
+                        SELECT t.*, a.title as award_title, u.name as user_name,
+                               t.travel_flight, t.travel_ground_transportation, 
+                               t.travel_lodging, t.travel_meals, t.travel_other
                         FROM transactions t
                         LEFT JOIN awards a ON t.award_id = a.award_id
                         LEFT JOIN users u ON t.user_id = u.user_id
@@ -2968,6 +3203,18 @@ def transactions_list():
                         (u["email"],)
                     )
                 transactions = cur.fetchall()
+                # Convert travel amounts to float
+                for txn in transactions:
+                    if txn.get('travel_flight'):
+                        txn['travel_flight'] = float(txn['travel_flight'])
+                    if txn.get('travel_ground_transportation'):
+                        txn['travel_ground_transportation'] = float(txn['travel_ground_transportation'])
+                    if txn.get('travel_lodging'):
+                        txn['travel_lodging'] = float(txn['travel_lodging'])
+                    if txn.get('travel_meals'):
+                        txn['travel_meals'] = float(txn['travel_meals'])
+                    if txn.get('travel_other'):
+                        txn['travel_other'] = float(txn['travel_other'])
             
             cur.close()
         except Exception as e:
@@ -3017,13 +3264,15 @@ def budget_status(award_id):
     
     budget_status_data = get_budget_status(award_id)
     
-    # ---- SUBAWARD COMMITTED AMOUNT (future obligations, not yet paid) ----
+    # ---- SUBAWARD COMMITTED AND SPENT AMOUNTS ----
     conn = get_db()
     subaward_committed = 0.0
+    subaward_spent = 0.0
 
     if conn is not None:
         try:
             cur = conn.cursor(cursor_factory=RealDictCursor)
+            # Committed = Approved subawards (not yet paid)
             cur.execute(
                 """
                 SELECT COALESCE(SUM(amount), 0) AS subaward_total
@@ -3035,6 +3284,20 @@ def budget_status(award_id):
             )
             row = cur.fetchone()
             subaward_committed = float(row["subaward_total"]) if row else 0.0
+            
+            # Spent = Paid subawards
+            cur.execute(
+                """
+                SELECT COALESCE(SUM(amount), 0) AS subaward_total
+                FROM subawards
+                WHERE award_id = %s
+                  AND status = 'Paid'
+                """,
+                (award_id,)
+            )
+            row = cur.fetchone()
+            subaward_spent = float(row["subaward_total"]) if row else 0.0
+            
             cur.close()
         except Exception as e:
             print(f"DB fetch subaward total error: {e}")
@@ -3139,6 +3402,23 @@ def budget_status(award_id):
                 if sub.get('amount'):
                     sub['amount'] = float(sub['amount'])
             
+            # Add Subawards category to budget_status_data
+            total_subawards = sum(float(s.get('amount', 0) or 0) for s in subawards_list)
+            approved_subawards = [s for s in subawards_list if s.get('status') == 'Approved']
+            paid_subawards = [s for s in subawards_list if s.get('status') == 'Paid']
+            
+            subaward_allocated = total_subawards
+            subaward_committed_calc = sum(float(s.get('amount', 0) or 0) for s in approved_subawards)
+            subaward_spent_calc = sum(float(s.get('amount', 0) or 0) for s in paid_subawards)
+            subaward_remaining = subaward_allocated - subaward_committed_calc - subaward_spent_calc
+            
+            budget_status_data['Subawards'] = {
+                'allocated': subaward_allocated,
+                'spent': subaward_spent_calc,
+                'committed': subaward_committed_calc,
+                'remaining': max(0, subaward_remaining)
+            }
+            
             cur.close()
         except Exception as e:
             print(f"DB fetch items error: {e}")
@@ -3146,14 +3426,15 @@ def budget_status(award_id):
             conn.close()
     
     # Calculate totals (ensure all are floats)
-    # Spent = only paid expenses (approved transactions)
-    # Committed = only future obligations (pending transactions + approved subawards)
+    # Spent = paid expenses (paid transactions + paid subawards)
+    # Committed = future obligations (pending transactions + approved subawards)
     allocated = float(sum(cat.get('allocated', 0) for cat in budget_status_data.values()))
-    spent = float(sum(cat.get('spent', 0) for cat in budget_status_data.values()))
+    spent_tx = float(sum(cat.get('spent', 0) for cat in budget_status_data.values()))  # Paid transactions
     committed_tx = float(sum(cat.get('committed', 0) for cat in budget_status_data.values()))  # Pending transactions only
     
-    # Include approved subawards as committed (future obligations, not yet paid)
-    committed = committed_tx + subaward_committed
+    # Include subawards: approved = committed, paid = spent
+    spent = spent_tx + subaward_spent  # Paid transactions + paid subawards
+    committed = committed_tx + subaward_committed  # Pending transactions + approved subawards
     
     # Remaining = allocated - spent - committed
     remaining = allocated - spent - committed
@@ -4393,9 +4674,6 @@ def check_transaction_compliance_route(transaction_id):
 
 @app.route("/admin/init-db", methods=["GET", "POST"])
 def admin_init_db():
-    """Initialize database and update constraints."""
-    # Update transactions status constraint
-    update_transactions_status_constraint()
     """Admin route to manually initialize database schema."""
     u = session.get("user")
     if not u or u.get("role") != "Admin":
@@ -4443,6 +4721,10 @@ def admin_init_db():
                     conn.commit()
                     message = f"✓ Database schema initialized! ({executed} statements executed)"
                 
+                # Update status constraints after schema initialization
+                update_transactions_status_constraint()
+                update_subawards_status_constraint()
+                
                 cur.close()
                 conn.close()
                 # Redirect to subawards page after successful initialization
@@ -4488,6 +4770,7 @@ def admin_init_db():
 
 if __name__ == "__main__":
     init_db_if_needed()
-    # Ensure transactions constraint includes 'Paid' status
+    # Ensure transactions and subawards constraints include 'Paid' status
     update_transactions_status_constraint()
+    update_subawards_status_constraint()
     app.run(debug=True, port=8000)

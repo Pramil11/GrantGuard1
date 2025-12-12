@@ -2245,3 +2245,21 @@ body.theme-dark select option {
 body.theme-dark .status-badge {
   /* Status badges already have dark mode styles defined above */
 }
+
+/* Notification badges */
+.notification-badge-link {
+  cursor: pointer;
+}
+
+.notification-badge-link:hover {
+  background: #fef2f2 !important;
+  transform: scale(1.05);
+}
+
+body.theme-dark .notification-badge-link:hover {
+  background: rgba(239, 68, 68, 0.1) !important;
+}
+
+body.theme-dark .notification-label {
+  color: #d1d5db !important;
+}

@@ -88,6 +88,25 @@
         <a href="{{ url_for('transactions_list', award_id=award.award_id) }}" class="btn" style="background: #6b7280;">
           Transactions
         </a>
+        {% if user.role == 'Admin' %}
+        <form method="post" action="{{ url_for('award_delete', award_id=award.award_id) }}" style="display:inline;"
+              onsubmit="return confirm('Are you sure you want to delete this approved award? This will also delete all associated transactions and subawards. This action cannot be undone.');">
+          <button type="submit" class="btn" style="background: #ef4444;">
+            Delete Award
+          </button>
+        </form>
+        {% endif %}
+        {% endif %}
+        
+        {% if award.status == 'Declined' %}
+        {% if user.role == 'Admin' %}
+        <form method="post" action="{{ url_for('award_delete', award_id=award.award_id) }}" style="display:inline;"
+              onsubmit="return confirm('Are you sure you want to delete this declined award? This action cannot be undone.');">
+          <button type="submit" class="btn" style="background: #ef4444;">
+            Delete Award
+          </button>
+        </form>
+        {% endif %}
         {% endif %}
       </div>
       

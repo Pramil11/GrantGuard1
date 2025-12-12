@@ -65,7 +65,30 @@
             <tr>
               <td>{{ txn.date_submitted }}</td>
               <td>{{ txn.category }}</td>
-              <td style="max-width: 300px;">{{ txn.description }}</td>
+              <td style="max-width: 300px;">
+                {{ txn.description }}
+                {% if txn.category == 'Travel' and (txn.travel_flight or txn.travel_ground_transportation or txn.travel_lodging or txn.travel_meals or txn.travel_other) %}
+                  <div style="margin-top: 8px; padding: 8px; background: #f9fafb; border-radius: 4px; font-size: 0.8125em; color: #6b7280;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px;">
+                      {% if txn.travel_flight %}
+                      <div>Flight: ${{ '{:,.2f}'.format(txn.travel_flight) }}</div>
+                      {% endif %}
+                      {% if txn.travel_ground_transportation %}
+                      <div>Ground: ${{ '{:,.2f}'.format(txn.travel_ground_transportation) }}</div>
+                      {% endif %}
+                      {% if txn.travel_lodging %}
+                      <div>Lodging: ${{ '{:,.2f}'.format(txn.travel_lodging) }}</div>
+                      {% endif %}
+                      {% if txn.travel_meals %}
+                      <div>Meals: ${{ '{:,.2f}'.format(txn.travel_meals) }}</div>
+                      {% endif %}
+                      {% if txn.travel_other %}
+                      <div>Other: ${{ '{:,.2f}'.format(txn.travel_other) }}</div>
+                      {% endif %}
+                    </div>
+                  </div>
+                {% endif %}
+              </td>
               <td style="font-weight: 600; color: #0b84f3;">${{ '{:,.2f}'.format(txn.amount) }}</td>
               <td>
                 <span class="status-badge status-{{ txn.status.lower() }}">{{ txn.status }}</span>

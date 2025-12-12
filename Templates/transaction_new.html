@@ -70,9 +70,45 @@
           </select>
         </div>
 
-        <div>
+        <!-- Travel Detail Fields (shown only when Travel is selected) -->
+        <div id="travel-details-section" style="display: none;">
+          <h4 style="margin: 0 0 16px 0; font-size: 1em; font-weight: 600; color: var(--gg-text-main);">Travel Expense Breakdown</h4>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+            <div>
+              <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--gg-text-main);">Flight/Airfare</label>
+              <input type="number" name="travel_flight" id="travel-flight" step="0.01" min="0" placeholder="0.00" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: var(--gg-bg-card); color: var(--gg-text-main); font-size: 0.875em;">
+            </div>
+            <div>
+              <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--gg-text-main);">Ground Transportation</label>
+              <input type="number" name="travel_ground" id="travel-ground" step="0.01" min="0" placeholder="0.00" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: var(--gg-bg-card); color: var(--gg-text-main); font-size: 0.875em;">
+            </div>
+            <div>
+              <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--gg-text-main);">Lodging</label>
+              <input type="number" name="travel_lodging" id="travel-lodging" step="0.01" min="0" placeholder="0.00" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: var(--gg-bg-card); color: var(--gg-text-main); font-size: 0.875em;">
+            </div>
+            <div>
+              <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--gg-text-main);">Meals</label>
+              <input type="number" name="travel_meals" id="travel-meals" step="0.01" min="0" placeholder="0.00" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: var(--gg-bg-card); color: var(--gg-text-main); font-size: 0.875em;">
+            </div>
+            <div>
+              <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--gg-text-main);">Other Travel Expenses</label>
+              <input type="number" name="travel_other" id="travel-other" step="0.01" min="0" placeholder="0.00" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: var(--gg-bg-card); color: var(--gg-text-main); font-size: 0.875em;">
+            </div>
+            <div>
+              <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--gg-text-main);">Total *</label>
+              <input type="number" name="amount" id="amount-input-travel" step="0.01" min="0.01" required placeholder="0.00" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: #f3f4f6; color: var(--gg-text-main); font-size: 0.875em; font-weight: 600; cursor: not-allowed;" readonly>
+            </div>
+          </div>
+          <div id="budget-warning-travel" style="display: none; margin-top: 8px; padding: 12px; background: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
+            <div style="color: #92400e; font-weight: 600; font-size: 0.875em; margin-bottom: 4px;">⚠ Budget Warning</div>
+            <div style="color: #78350f; font-size: 0.8125em;" id="warning-text-travel"></div>
+          </div>
+        </div>
+
+        <!-- Standard Amount Field (shown for non-Travel categories) -->
+        <div id="standard-amount-section">
           <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--gg-text-main);">Amount (USD) *</label>
-          <input type="number" name="amount" id="amount-input" step="0.01" min="0.01" required placeholder="0.00" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: var(--gg-bg-card); color: var(--gg-text-main); font-size: 0.875em;">
+          <input type="number" name="amount" id="amount-input-standard" step="0.01" min="0.01" required placeholder="0.00" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #e0e3e7; background: var(--gg-bg-card); color: var(--gg-text-main); font-size: 0.875em;">
           <div id="budget-warning" style="display: none; margin-top: 8px; padding: 12px; background: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 4px;">
             <div style="color: #92400e; font-weight: 600; font-size: 0.875em; margin-bottom: 4px;">⚠ Budget Warning</div>
             <div style="color: #78350f; font-size: 0.8125em;" id="warning-text"></div>
@@ -102,16 +138,99 @@
     const budgetStatus = {{ budget_status | tojson }};
     
     const categorySelect = document.getElementById('category-select');
-    const amountInput = document.getElementById('amount-input');
+    const travelDetailsSection = document.getElementById('travel-details-section');
+    const standardAmountSection = document.getElementById('standard-amount-section');
+    const amountInputTravel = document.getElementById('amount-input-travel');
+    const amountInputStandard = document.getElementById('amount-input-standard');
     const budgetWarning = document.getElementById('budget-warning');
     const warningText = document.getElementById('warning-text');
+    const budgetWarningTravel = document.getElementById('budget-warning-travel');
+    const warningTextTravel = document.getElementById('warning-text-travel');
+    
+    // Travel expense inputs
+    const travelFlight = document.getElementById('travel-flight');
+    const travelGround = document.getElementById('travel-ground');
+    const travelLodging = document.getElementById('travel-lodging');
+    const travelMeals = document.getElementById('travel-meals');
+    const travelOther = document.getElementById('travel-other');
+    
+    // Calculate travel total
+    function calculateTravelTotal() {
+      const flight = parseFloat(travelFlight.value) || 0;
+      const ground = parseFloat(travelGround.value) || 0;
+      const lodging = parseFloat(travelLodging.value) || 0;
+      const meals = parseFloat(travelMeals.value) || 0;
+      const other = parseFloat(travelOther.value) || 0;
+      const total = flight + ground + lodging + meals + other;
+      if (amountInputTravel) {
+        if (total > 0) {
+          amountInputTravel.value = total.toFixed(2);
+        } else {
+          amountInputTravel.value = '';
+        }
+      }
+      checkBudget();
+    }
+    
+    // Show/hide travel details based on category
+    function toggleTravelFields() {
+      const category = categorySelect.value;
+      
+      if (category === 'Travel') {
+        travelDetailsSection.style.display = 'block';
+        standardAmountSection.style.display = 'none';
+        // Make travel amount required, standard not required
+        if (amountInputTravel) {
+          amountInputTravel.required = true;
+          amountInputTravel.name = 'amount'; // Ensure it has the correct name
+        }
+        if (amountInputStandard) {
+          amountInputStandard.required = false;
+          amountInputStandard.removeAttribute('name'); // Remove name so it's not submitted
+          amountInputStandard.value = ''; // Clear value
+        }
+      } else {
+        travelDetailsSection.style.display = 'none';
+        standardAmountSection.style.display = 'block';
+        // Make standard amount required, travel not required
+        if (amountInputStandard) {
+          amountInputStandard.required = true;
+          amountInputStandard.name = 'amount'; // Ensure it has the correct name
+        }
+        if (amountInputTravel) {
+          amountInputTravel.required = false;
+          amountInputTravel.removeAttribute('name'); // Remove name so it's not submitted
+          amountInputTravel.value = ''; // Clear value
+        }
+        // Clear travel fields
+        if (travelFlight) travelFlight.value = '';
+        if (travelGround) travelGround.value = '';
+        if (travelLodging) travelLodging.value = '';
+        if (travelMeals) travelMeals.value = '';
+        if (travelOther) travelOther.value = '';
+      }
+      checkBudget();
+    }
     
     function checkBudget() {
       const category = categorySelect.value;
-      const amount = parseFloat(amountInput.value) || 0;
+      let amount = 0;
+      let warningElement, textElement;
+      
+      if (category === 'Travel') {
+        amount = parseFloat(amountInputTravel?.value) || 0;
+        warningElement = budgetWarningTravel;
+        textElement = warningTextTravel;
+      } else {
+        amount = parseFloat(amountInputStandard?.value) || 0;
+        warningElement = budgetWarning;
+        textElement = warningText;
+      }
       
       if (!category || amount <= 0) {
-        budgetWarning.style.display = 'none';
+        if (warningElement) warningElement.style.display = 'none';
+        if (budgetWarning) budgetWarning.style.display = 'none';
+        if (budgetWarningTravel) budgetWarningTravel.style.display = 'none';
         return;
       }
       
@@ -121,7 +240,9 @@
       const categoryBudget = budgetStatus[budgetKey];
       
       if (!categoryBudget) {
-        budgetWarning.style.display = 'none';
+        if (warningElement) warningElement.style.display = 'none';
+        if (budgetWarning) budgetWarning.style.display = 'none';
+        if (budgetWarningTravel) budgetWarningTravel.style.display = 'none';
         return;
       }
       
@@ -129,35 +250,96 @@
       const remaining = categoryBudget.remaining || 0;
       
       if (allocated > 0 && amount > remaining) {
-        budgetWarning.style.display = 'block';
-        warningText.innerHTML = `
-          This amount ($${amount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}) exceeds the remaining budget 
-          ($${remaining.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}) for ${category}. 
-          ${allocated > 0 ? `Total allocated: $${allocated.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : ''}
-        `;
-        budgetWarning.style.background = '#fef2f2';
-        budgetWarning.style.borderLeftColor = '#ef4444';
-        warningText.style.color = '#991b1b';
+        if (warningElement) {
+          warningElement.style.display = 'block';
+          textElement.innerHTML = `
+            This amount ($${amount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}) exceeds the remaining budget 
+            ($${remaining.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}) for ${category}. 
+            ${allocated > 0 ? `Total allocated: $${allocated.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : ''}
+          `;
+          warningElement.style.background = '#fef2f2';
+          warningElement.style.borderLeftColor = '#ef4444';
+          textElement.style.color = '#991b1b';
+        }
       } else if (allocated > 0 && amount > allocated * 0.9) {
         // Warn if approaching the allocated amount (90% threshold)
-        budgetWarning.style.display = 'block';
-        warningText.innerHTML = `
-          This amount is approaching the allocated budget for ${category}. 
-          Remaining: $${remaining.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-        `;
-        budgetWarning.style.background = '#fef3c7';
-        budgetWarning.style.borderLeftColor = '#f59e0b';
-        warningText.style.color = '#78350f';
+        if (warningElement) {
+          warningElement.style.display = 'block';
+          textElement.innerHTML = `
+            This amount is approaching the allocated budget for ${category}. 
+            Remaining: $${remaining.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+          `;
+          warningElement.style.background = '#fef3c7';
+          warningElement.style.borderLeftColor = '#f59e0b';
+          textElement.style.color = '#78350f';
+        }
       } else {
-        budgetWarning.style.display = 'none';
+        if (warningElement) warningElement.style.display = 'none';
       }
     }
     
-    categorySelect.addEventListener('change', checkBudget);
-    amountInput.addEventListener('input', checkBudget);
+    // Event listeners
+    categorySelect.addEventListener('change', toggleTravelFields);
+    if (amountInputStandard) amountInputStandard.addEventListener('input', checkBudget);
     
-    // Check on page load if there's a pre-filled amount
-    if (amountInput.value) {
+    // Travel expense input listeners
+    if (travelFlight) travelFlight.addEventListener('input', calculateTravelTotal);
+    if (travelGround) travelGround.addEventListener('input', calculateTravelTotal);
+    if (travelLodging) travelLodging.addEventListener('input', calculateTravelTotal);
+    if (travelMeals) travelMeals.addEventListener('input', calculateTravelTotal);
+    if (travelOther) travelOther.addEventListener('input', calculateTravelTotal);
+    
+    // Form submission handler to ensure correct amount field is used
+    const form = document.getElementById('transaction-form');
+    if (form) {
+      form.addEventListener('submit', function(e) {
+        const category = categorySelect.value;
+        
+        // Ensure the correct amount field is used based on category
+        if (category === 'Travel') {
+          // Recalculate total to ensure it's up to date
+          calculateTravelTotal();
+          
+          const travelTotal = parseFloat(amountInputTravel?.value) || 0;
+          if (travelTotal > 0) {
+            // Travel amount is set, ensure it's the one submitted
+            amountInputTravel.name = 'amount';
+            if (amountInputStandard) {
+              amountInputStandard.removeAttribute('name');
+              amountInputStandard.required = false;
+              amountInputStandard.value = ''; // Clear to avoid conflicts
+            }
+          } else {
+            e.preventDefault();
+            alert('Please enter at least one travel expense. The total must be greater than $0.00.');
+            if (travelFlight) travelFlight.focus();
+            return false;
+          }
+        } else {
+          const standardAmount = parseFloat(amountInputStandard?.value) || 0;
+          if (standardAmount > 0) {
+            // Standard amount is set, ensure it's the one submitted
+            amountInputStandard.name = 'amount';
+            if (amountInputTravel) {
+              amountInputTravel.removeAttribute('name');
+              amountInputTravel.required = false;
+              amountInputTravel.value = ''; // Clear to avoid conflicts
+            }
+          } else {
+            e.preventDefault();
+            alert('Please enter an amount greater than $0.00.');
+            if (amountInputStandard) {
+              amountInputStandard.focus();
+            }
+            return false;
+          }
+        }
+      });
+    }
+    
+    // Initialize on page load
+    toggleTravelFields();
+    if (amountInputStandard && amountInputStandard.value) {
       checkBudget();
     }
   </script>

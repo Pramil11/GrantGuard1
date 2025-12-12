@@ -78,6 +78,12 @@ CREATE TABLE IF NOT EXISTS transactions (
     date_submitted DATE,
     status VARCHAR(20) DEFAULT 'Pending',
     compliance_notes TEXT,
+    -- Travel detail fields (only used when category = 'Travel')
+    travel_flight DECIMAL(12,2),
+    travel_ground_transportation DECIMAL(12,2),
+    travel_lodging DECIMAL(12,2),
+    travel_meals DECIMAL(12,2),
+    travel_other DECIMAL(12,2),
     CONSTRAINT transactions_status_check
         CHECK (status IN ('Pending', 'Approved', 'Paid', 'Declined')),
     CONSTRAINT transactions_award_id_fkey FOREIGN KEY (award_id)
@@ -88,6 +94,13 @@ CREATE TABLE IF NOT EXISTS transactions (
 
 CREATE INDEX IF NOT EXISTS transactions_award_id_idx ON transactions(award_id);
 CREATE INDEX IF NOT EXISTS transactions_user_id_idx ON transactions(user_id);
+
+-- Add travel detail columns if they don't exist (for existing databases)
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS travel_flight DECIMAL(12,2);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS travel_ground_transportation DECIMAL(12,2);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS travel_lodging DECIMAL(12,2);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS travel_meals DECIMAL(12,2);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS travel_other DECIMAL(12,2);
 
 -- Add compliance_notes column if it doesn't exist
 ALTER TABLE transactions
@@ -244,11 +257,21 @@ CREATE TABLE IF NOT EXISTS subawards (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_by_email VARCHAR(255),
     CONSTRAINT subawards_award_id_fkey FOREIGN KEY (award_id)
-        REFERENCES awards(award_id) ON DELETE CASCADE
+        REFERENCES awards(award_id) ON DELETE CASCADE,
+    CONSTRAINT subawards_status_check
+        CHECK (status IN ('Pending', 'Approved', 'Paid', 'Declined'))
 );
 
 CREATE INDEX IF NOT EXISTS subawards_award_id_idx ON subawards(award_id);
 CREATE INDEX IF NOT EXISTS subawards_status_idx ON subawards(status);
+
+-- Update subawards status constraint to include 'Paid' if it doesn't already
+ALTER TABLE subawards
+  DROP CONSTRAINT IF EXISTS subawards_status_check;
+
+ALTER TABLE subawards
+  ADD CONSTRAINT subawards_status_check
+  CHECK (status IN ('Pending', 'Approved', 'Paid', 'Declined'));
 
 -- Budget lines for subawards (similar to main awards)
 CREATE TABLE IF NOT EXISTS subaward_budget_lines (
