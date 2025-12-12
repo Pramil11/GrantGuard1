@@ -2061,9 +2061,11 @@ def get_budget_status(award_id):
             # Skip "Total" category - we calculate totals separately
             if cat == 'Total':
                 continue
-            pending_amt = pending_by_category.get(cat, 0)
-            categories[cat]['committed'] = categories[cat]['spent'] + pending_amt
-            categories[cat]['remaining'] = categories[cat]['allocated'] - categories[cat]['spent']
+            categories[cat] = {
+                "allocated": float(line.get("allocated_amount") or 0),
+                "spent": float(line.get("spent_amount") or 0),
+                "committed": float(line.get("committed_amount") or 0),
+            }
 
         # Calculate spent and committed from transactions (source of truth)
         for txn in transactions:
@@ -2125,7 +2127,15 @@ def initialize_budget_lines(award_id):
         # Calculate budget by category from JSON data
         categories = {}
         total_award = float(award['amount'] or 0)
-        
+        def parse_json_field(raw):
+            if not raw:
+                return []
+            if isinstance(raw, (list, dict)):
+                return raw
+            try:
+                return json.loads(raw)
+            except (TypeError, json.JSONDecodeError):
+                return []
         # Personnel
         personnel = json.loads(award['personnel_json']) if award['personnel_json'] else []
         personnel_total = 0
@@ -2146,12 +2156,21 @@ def initialize_budget_lines(award_id):
         travel_total = 0
         for t in dom_travel + intl_travel:
             if isinstance(t, dict):
-                flight = float(t.get('flight', 0) or 0)
-                taxi = float(t.get('taxi', 0) or 0)
-                food = float(t.get('food', 0) or 0)
-                days = float(t.get('days', 0) or 0)
+                flight = float(
+                    t.get("flight_cost") or t.get("flight") or 0
+                )
+                taxi = float(
+                    t.get("taxi_per_day") or t.get("taxi") or 0
+                )
+                food = float(
+                    t.get("food_lodge_per_day")
+                    or t.get("food_per_day")
+                    or t.get("food")
+                    or 0
+                )
+                days = float(t.get("days", 0) or 0)
                 travel_total += flight + (taxi + food) * days
-        categories['Travel'] = travel_total
+        categories["Travel"] = travel_total
         
         # Materials
         materials = json.loads(award['materials_json']) if award['materials_json'] else []
@@ -2163,7 +2182,7 @@ def initialize_budget_lines(award_id):
         categories['Materials'] = materials_total
         
         # Equipment (from budget_equipment field)
-        categories['Equipment'] = float(award['budget_equipment'] or 0)
+        categories["Equipment"] = float(award.get("budget_equipment") or 0)
         
         # Other (remaining from total)
         total_allocated = sum(categories.values())
@@ -2171,7 +2190,7 @@ def initialize_budget_lines(award_id):
         
         # If no detailed breakdown, allocate everything to "Other"
         if total_allocated == 0 and total_award > 0:
-            categories['Other'] = total_award
+            categories = {"Other": total_award}
         
         # Insert/update budget_lines
         for category, amount in categories.items():
