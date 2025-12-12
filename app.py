@@ -2054,6 +2054,7 @@ def get_budget_status(award_id):
         
         # Calculate by category
         categories = {}
+        pending_by_category = {}
         
         # Initialize from budget_lines (allocated amounts)
         for line in budget_lines:
@@ -2061,12 +2062,10 @@ def get_budget_status(award_id):
             # Skip "Total" category - we calculate totals separately
             if cat == 'Total':
                 continue
-            categories[cat] = {
-                'allocated': float(line['allocated_amount'] or 0),
-                'spent': 0,  # Will recalculate from transactions
-                'committed': 0,  # Will recalculate from transactions
-            }
-        
+            pending_amt = pending_by_category.get(cat, 0)
+            categories[cat]['committed'] = categories[cat]['spent'] + pending_amt
+            categories[cat]['remaining'] = categories[cat]['allocated'] - categories[cat]['spent']
+
         # Calculate spent and committed from transactions (source of truth)
         for txn in transactions:
             cat = txn['category'] or 'Other'
@@ -2079,15 +2078,14 @@ def get_budget_status(award_id):
             if status == 'Approved':
                 categories[cat]['spent'] += amount
             elif status == 'Pending':
-                categories[cat]['committed'] += amount
-        
+                pending_by_category[cat] = pending_by_category.get(cat, 0) + amount
         # Calculate remaining
-        for cat in categories:
-            categories[cat]['remaining'] = (
-                categories[cat]['allocated'] - 
-                categories[cat]['spent'] - 
-                categories[cat]['committed']
-            )
+        for cat, vals in categories.items():
+            pending_amt = pending_by_category.get(cat, 0.0)
+            # Committed = spent + pending
+            vals['committed'] = vals['spent'] + pending_amt
+            # Remaining = allocated - spent (pending does not reduce remaining)
+            vals['remaining'] = vals['allocated'] - vals['spent']
         
         cur.close()
         return categories
