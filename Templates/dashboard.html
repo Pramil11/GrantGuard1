@@ -94,14 +94,24 @@
                         </a>
                     {% endif %}
 
-                    {# Delete – keep available always (or you can also wrap in an if) #}
-                    <form method="post"
+                    {# Delete option #}
+                    {% if role == 'Admin' and a.status == 'Declined' %}
+                      <form method="post"
                             action="{{ url_for('award_delete', award_id=a.award_id) }}"
                             style="display:inline;">
                         <button type="submit" class="btn-small-danger">
-                        Delete
+                          Delete
                         </button>
-                    </form>
+                      </form>
+                    {% elif role != 'Admin' %}
+                      <form method="post"
+                            action="{{ url_for('award_delete', award_id=a.award_id) }}"
+                            style="display:inline;">
+                        <button type="submit" class="btn-small-danger">
+                          Delete
+                        </button>
+                      </form>
+                    {% endif %}
                     </td>
 
               </tr>

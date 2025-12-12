@@ -1364,22 +1364,60 @@ def award_edit(award_id):
 
 @app.route("/awards/<int:award_id>/delete", methods=["POST"])
 def award_delete(award_id):
-    """Delete an award (PI only)."""
+    """Delete an award.
+
+    - PIs can delete their own awards.
+    - Admins can delete awards that are already declined.
+    """
     u = session.get("user")
     if not u:
         return redirect(url_for("home"))
-    if u["role"] != "PI":
-        return redirect(url_for("dashboard"))
 
     conn = get_db()
     if conn is None:
         return make_response("DB connection failed", 500)
 
     try:
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Fetch the award with role-aware constraints
+        if u["role"] == "PI":
+            cur.execute(
+                "SELECT award_id, status FROM awards WHERE award_id=%s AND created_by_email=%s",
+                (award_id, u["email"]),
+            )
+        else:
+            # Admin: can delete only if the award is declined
+            cur.execute(
+                "SELECT award_id, status FROM awards WHERE award_id=%s",
+                (award_id,),
+            )
+
+        award = cur.fetchone()
+
+        if not award:
+            cur.close()
+            conn.close()
+            return "Award not found", 404
+
+        # Authorization rules
+        if u["role"] == "PI":
+            # PIs can delete their own awards (any status for now)
+            pass
+        elif u["role"] == "Admin":
+            if (award.get("status") or "").lower() != "declined":
+                cur.close()
+                conn.close()
+                return make_response("Admins may only delete declined awards.", 403)
+        else:
+            cur.close()
+            conn.close()
+            return redirect(url_for("dashboard"))
+
+        # Perform delete
         cur.execute(
-            "DELETE FROM awards WHERE award_id=%s AND created_by_email=%s",
-            (award_id, u["email"]),
+            "DELETE FROM awards WHERE award_id=%s",
+            (award_id,),
         )
         conn.commit()
         cur.close()
@@ -2098,10 +2136,11 @@ def get_budget_status(award_id):
         # Calculate remaining
         for cat, vals in categories.items():
             pending_amt = pending_by_category.get(cat, 0.0)
-            # Committed = spent + pending
-            vals['committed'] = vals['spent'] + pending_amt
-            # Remaining = allocated - committed (both spent and pending reduce available budget)
-            vals['remaining'] = max(0, vals['allocated'] - vals['committed'])
+            # Committed = only pending transactions (future obligations, not yet paid)
+            # Spent = only approved transactions (already paid)
+            vals['committed'] = pending_amt
+            # Remaining = allocated - spent - committed (both reduce available budget)
+            vals['remaining'] = max(0, vals['allocated'] - vals['spent'] - vals['committed'])
         
         cur.close()
         return categories
@@ -2440,7 +2479,7 @@ def transaction_create():
         
         # Only check budget if there's an allocated amount for this category
         # If no budget allocated yet, allow the transaction (it will create the budget line)
-        # Remaining = allocated - committed (spent + pending), so check against remaining
+        # Remaining = allocated - spent - committed, so check against remaining
         if allocated > 0 and amount_val > remaining:
             return make_response(f"Insufficient budget. Remaining: ${remaining:,.2f}", 400)
         
@@ -2623,8 +2662,8 @@ def budget_status(award_id):
         initialize_budget_lines(award_id)
     
     budget_status_data = get_budget_status(award_id)
-
-        # ---- SUBAWARD COMMITTED AMOUNT ----
+    
+    # ---- SUBAWARD COMMITTED AMOUNT (future obligations, not yet paid) ----
     conn = get_db()
     subaward_committed = 0.0
 
@@ -2753,25 +2792,29 @@ def budget_status(award_id):
             conn.close()
     
     # Calculate totals (ensure all are floats)
-        allocated = sum(cat.get('allocated', 0) for cat in budget_status_data.values())
-        spent = sum(cat.get('spent', 0) for cat in budget_status_data.values())
-        committed_tx = sum(cat.get('committed', 0) for cat in budget_status_data.values())
-
-        # Include approved subawards as committed
-        committed = committed_tx + subaward_committed
-
-        remaining = allocated - spent - committed
-
-        totals = {
-            'allocated': allocated,
-            'spent': spent,
-            'committed': committed,
-            'remaining': remaining,
-        }
+    # Spent = only paid expenses (approved transactions)
+    # Committed = only future obligations (pending transactions + approved subawards)
+    allocated = float(sum(cat.get('allocated', 0) for cat in budget_status_data.values()))
+    spent = float(sum(cat.get('spent', 0) for cat in budget_status_data.values()))
+    committed_tx = float(sum(cat.get('committed', 0) for cat in budget_status_data.values()))  # Pending transactions only
+    
+    # Include approved subawards as committed (future obligations, not yet paid)
+    committed = committed_tx + subaward_committed
+    
+    # Remaining = allocated - spent - committed
+    remaining = allocated - spent - committed
+    
+    totals = {
+        'allocated': allocated,
+        'spent': spent,
+        'committed': committed,
+        'remaining': remaining,
+    }
     
     # Convert award.amount to float and calculate remaining budget
+    # Remaining = Total Award - Spent - Committed (both reduce available budget)
     total_award_amount = float(award.get('amount') or 0)
-    remaining_budget = total_award_amount - totals['committed']
+    remaining_budget = total_award_amount - totals['spent'] - totals['committed']
     
     # Ensure award.amount is float for template display
     if award.get('amount'):
@@ -2994,15 +3037,26 @@ def profile():
     if conn is not None:
         try:
             cur = conn.cursor(cursor_factory=RealDictCursor)
-            cur.execute(
-                """
-                SELECT award_id, title, sponsor_type, amount, start_date, end_date, status, created_at
-                FROM awards
-                WHERE created_by_email=%s
-                ORDER BY created_at DESC
-                """,
-                (u["email"],),
-            )
+            if u["role"] == "Admin":
+                # Admin: see all awards
+                cur.execute(
+                    """
+                    SELECT award_id, title, sponsor_type, amount, start_date, end_date, status, created_at
+                    FROM awards
+                    ORDER BY created_at DESC
+                    """
+                )
+            else:
+                # PI: only their own awards
+                cur.execute(
+                    """
+                    SELECT award_id, title, sponsor_type, amount, start_date, end_date, status, created_at
+                    FROM awards
+                    WHERE created_by_email=%s
+                    ORDER BY created_at DESC
+                    """,
+                    (u["email"],),
+                )
             awards = cur.fetchall()
             cur.close()
         except Exception as e:

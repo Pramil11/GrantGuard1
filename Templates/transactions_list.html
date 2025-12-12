@@ -37,7 +37,9 @@
         </div>
         {% if award %}
         <div style="display: flex; gap: 12px;">
+          {% if user.role != 'Admin' %}
           <a href="{{ url_for('transaction_new', award_id=award.award_id) }}" class="btn">New Transaction</a>
+          {% endif %}
           <a href="{{ url_for('budget_status', award_id=award.award_id) }}" class="btn" style="background: #6b7280;">Budget Status</a>
         </div>
         {% endif %}
@@ -89,7 +91,7 @@
       <div class="card">
         <div style="text-align: center; padding: 60px 20px;">
           <p style="margin: 0 0 20px 0; font-size: 1em; color: #6b7280;">No transactions yet.</p>
-          {% if award %}
+          {% if award and user.role != 'Admin' %}
           <a href="{{ url_for('transaction_new', award_id=award.award_id) }}" class="btn">Create First Transaction</a>
           {% endif %}
         </div>

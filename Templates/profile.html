@@ -58,6 +58,7 @@
             <strong class="stat-value">{{ stats.active_awards }}</strong>
           </div>
         </div>
+        {% if user.role != 'Admin' %}
         <div class="card stat-card">
           <div class="stat-content">
             <span class="stat-label">Latest Submission</span>
@@ -70,6 +71,7 @@
             {% endif %}
           </div>
         </div>
+        {% endif %}
       </section>
 
       <section class="card grant-history-section">

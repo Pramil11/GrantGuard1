@@ -35,7 +35,9 @@
           <p style="margin: 8px 0 0 0; font-size: 0.875em; color: #6b7280;">{{ award.title }}</p>
         </div>
         <div style="display: flex; gap: 12px;">
+          {% if user.role != 'Admin' %}
           <a href="{{ url_for('transaction_new', award_id=award.award_id) }}" class="btn">New Transaction</a>
+          {% endif %}
           <a href="{{ url_for('transactions_list', award_id=award.award_id) }}" class="btn" style="background: #6b7280;">View Transactions</a>
         </div>
       </header>

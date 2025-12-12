@@ -34,7 +34,9 @@
           <h1 style="margin: 0; font-size: 1.75em; font-weight: 700; color: var(--gg-text-main);">Subawards</h1>
           <p style="margin: 8px 0 0 0; font-size: 0.875em; color: #6b7280;">Manage subaward agreements and collaborators</p>
         </div>
+        {% if user.role != 'Admin' %}
         <a href="{{ url_for('subaward_new') }}" class="btn">Create New Subaward</a>
+        {% endif %}
       </header>
 
 
@@ -87,7 +89,9 @@
       <div class="card">
         <div style="text-align: center; padding: 60px 20px;">
           <p style="margin: 0 0 20px 0; font-size: 1em; color: #6b7280;">No subawards yet.</p>
+          {% if user.role != 'Admin' %}
           <a href="{{ url_for('subaward_new') }}" class="btn">Create First Subaward</a>
+          {% endif %}
         </div>
       </div>
       {% endif %}
